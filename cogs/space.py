@@ -95,8 +95,9 @@ class Space(commands.Cog):
             try:
                 message = await channel.fetch_message(channel.last_message_id)
                 channels_dates[channel.id] = message.created_at
-            except (discord.NotFound):
-                empty_channels_dates[channel.id] = channel.created_at
+            except (discord.NotFound, discord.HTTPException) as e:
+                if e.code in [10008, 50013]:
+                    empty_channels_dates[channel.id] = channel.created_at
 
         # separate pinned channels
         for id in env.list("PINNED_CHANNEL_IDS", subcast=int):
