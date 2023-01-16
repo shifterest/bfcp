@@ -63,7 +63,7 @@ async def sort(ctx):
         (
             category.channels
             for category in categories
-            if category.id in env.int("CATEGORY_ID")
+            if category.id == env.int("CATEGORY_ID")
         ),
         [],
     )
