@@ -2,9 +2,9 @@ FROM python:latest
 
 WORKDIR /app
 
-COPY requirements.txt requirements.txt
-RUN pip3 install -r requirements.txt -t .
+RUN pip3 install --target="/app" pip
+COPY requirements.txt /app
+RUN pip3 install --target="/app" -r requirements.txt
 
-COPY . .
-
+COPY bfcp.py /app
 CMD ["python3", "bfcp.py"]
