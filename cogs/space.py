@@ -1,7 +1,6 @@
 import asyncio
 
 import discord
-import discord_emoji
 from discord.ext import commands
 from environs import Env
 
@@ -55,9 +54,8 @@ class Space(commands.Cog):
         ),
     ):
         await ctx.defer()
-
         space_category = ctx.guild.get_channel(env.int("CATEGORY_ID"))
-        space_emoji = discord_emoji.to_unicode(emoji) or "✨"
+        space_emoji = emoji or "✨"
         space_name = name or f"{owner.display_name}-space"
         space_full_name = space_emoji + env.str("DELIMITER") + space_name
         overwrites = {
@@ -71,17 +69,8 @@ class Space(commands.Cog):
             ctx.guild.default_role: discord.PermissionOverwrite(send_messages=False),
         }
 
-        # find the first empty channel and create the new channel before it
-        channels = ctx.guild.get_channel(env.int("CATEGORY_ID")).text_channels
-        for channel in channels:
-            try:
-                await channel.fetch_message(channel.last_message_id)
-            except (discord.NotFound, discord.HTTPException):
-                position = channel.position
-                break
-
         space = await space_category.create_text_channel(
-            space_full_name, overwrites=overwrites, position=position
+            space_full_name, overwrites=overwrites
         )
 
         await ctx.send_followup(f"**👍 · {space.mention} created**")
@@ -106,7 +95,7 @@ class Space(commands.Cog):
             try:
                 message = await channel.fetch_message(channel.last_message_id)
                 channels_dates[channel.id] = message.created_at
-            except (discord.NotFound, discord.HTTPException):
+            except (discord.NotFound):
                 empty_channels_dates[channel.id] = channel.created_at
 
         # separate pinned channels

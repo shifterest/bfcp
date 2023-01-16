@@ -1,3 +1,2 @@
 py.cord==2.3
-discord_emoji==1.4.1
 environs==9.5.0
