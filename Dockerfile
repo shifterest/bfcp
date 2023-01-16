@@ -1,13 +1,10 @@
 FROM python:3.9
 
-RUN mkdir /install /src
-WORKDIR /install
-RUN pip install --target="/install" --upgrade pip
-COPY requirements.txt /install
-RUN pip install --target="/install" -r requirements.txt
-COPY README.md /src
-COPY bfcp.py /src
+WORKDIR /app
 
-# Run script
-WORKDIR /src
-CMD python /src/bfcp.py
+COPY requirements.txt requirements.txt
+RUN pip install -r requirements.txt
+
+COPY . .
+
+CMD ["python3", "bfcp.py"]
