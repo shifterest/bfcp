@@ -1,5 +1,6 @@
 from datetime import datetime
 import logging
+import os
 
 import discord
 from environs import Env
@@ -11,6 +12,8 @@ logger.setLevel(logging.INFO)
 now = datetime.now()
 log_file = f"discord_{now.year}_{now.month}_{now.day}.log"
 
+if not os.path.exists("./logs/"):
+    os.makedirs("./logs/")
 handler = logging.FileHandler(filename=f"./logs/{log_file}", encoding="utf-8", mode="w")
 handler.setFormatter(
     logging.Formatter("%(asctime)s:%(levelname)s:%(name)s: %(message)s")
