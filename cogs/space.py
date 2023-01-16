@@ -19,10 +19,10 @@ class Space(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message):
         # ignore threads, etc.
-        if message.channel.type != discord.ChannelType.text:
-            return
-        # ignore pinned channels
-        if message.channel.id in env.list("PINNED_CHANNEL_IDS", subcast=int):
+        if (
+            message.channel.type != discord.ChannelType.text
+            or message.channel.id in env.list("PINNED_CHANNEL_IDS", subcast=int)
+        ):
             return
         if message.channel.category_id == env.int("CATEGORY_ID"):
             position = 0
@@ -35,6 +35,7 @@ class Space(commands.Cog):
 
             await message.channel.edit(position=position + 1)
 
+    # create space
     @space.command(
         name="create",
         description="Creates a space given an owner",
@@ -69,6 +70,10 @@ class Space(commands.Cog):
             ),
             ctx.guild.default_role: discord.PermissionOverwrite(send_messages=False),
         }
+        for id in env.list("OVERWRITE_ROLE_IDS", subcast=int):
+            overwrites[ctx.guild.get_role(id)] = discord.PermissionOverwrite(
+                view_channel=True
+            )
 
         space = await space_category.create_text_channel(
             space_full_name, overwrites=overwrites
