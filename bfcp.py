@@ -100,7 +100,7 @@ async def sort(ctx):
 
     for i, id in enumerate(ordered_channels):
         await bot.get_channel(id).edit(position=first_pos + i)
-        asyncio.sleep(0.5)
+        await asyncio.sleep(0.5)
 
     await ctx.send_followup("👍")
 
