@@ -65,6 +65,7 @@ class Space(commands.Cog):
                 manage_permissions=True,
                 manage_webhooks=True,
                 read_messages=True,
+                send_messages=True,
             ),
             ctx.guild.default_role: discord.PermissionOverwrite(send_messages=False),
         }
