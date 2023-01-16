@@ -106,19 +106,19 @@ async def sort(ctx):
 
 
 # Work in progress!
-@bot.slash_command(
-    name="metube",
-    description="Sends an URL to a MeTube instance",
-    guild_ids=env.list("GUILD_ID"),
-    options=discord.Option(
-        name="url",
-        input_type=discord.SlashCommandOptionType.string,
-        required=True,
-        description="The URL to send to a MeTube instance",
-    ),
-)
-async def metube(ctx):
-    await ctx.send_followup("👍")
+# @bot.slash_command(
+#     name="metube",
+#     description="Sends an URL to a MeTube instance",
+#     guild_ids=env.list("GUILD_ID"),
+#     options=discord.Option(
+#         name="url",
+#         input_type=discord.SlashCommandOptionType.string,
+#         required=True,
+#         description="The URL to send to a MeTube instance",
+#     ),
+# )
+# async def metube(ctx):
+#     await ctx.send_followup("👍")
 
 
 bot.run(env.str("TOKEN"))
