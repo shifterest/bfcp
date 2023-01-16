@@ -61,16 +61,18 @@ class Space(commands.Cog):
         space_name = name or f"{owner.display_name}-space"
         space_full_name = space_emoji + env.str("DELIMITER") + space_name
         overwrites = {
-            owner: discord.PermissionOverwrite(view_channel=True),
-            owner: discord.PermissionOverwrite(manage_channels=True),
-            owner: discord.PermissionOverwrite(manage_permissions=True),
-            owner: discord.PermissionOverwrite(manage_webhooks=True),
-            owner: discord.PermissionOverwrite(read_messages=True),
+            owner: discord.PermissionOverwrite(
+                view_channel=True,
+                manage_channels=True,
+                manage_permissions=True,
+                manage_webhooks=True,
+                read_messages=True,
+            ),
             ctx.guild.default_role: discord.PermissionOverwrite(send_messages=False),
         }
 
         # find the first empty channel and create the new channel before it
-        channels = ctx.guild.get_channel(env.int("CATEGORY_ID")).channels
+        channels = ctx.guild.get_channel(env.int("CATEGORY_ID")).text_channels
         for channel in channels:
             try:
                 await channel.fetch_message(channel.last_message_id)
@@ -93,7 +95,7 @@ class Space(commands.Cog):
         # this'll take a while
         await ctx.defer()
 
-        channels = ctx.guild.get_channel(env.int("CATEGORY_ID")).channels
+        channels = ctx.guild.get_channel(env.int("CATEGORY_ID")).text_channels
         first_pos = channels[0].position
         pinned_channels = []
         channels_dates = {}
