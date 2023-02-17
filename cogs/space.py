@@ -81,7 +81,7 @@ class Space(commands.Cog):
 
         await ctx.send_followup(
             f"**👍 · {owner.mention}, check your space out at {space.mention}!**",
-            allowed_mentions=discord.AllowedMentions.all,
+            allowed_mentions=discord.AllowedMentions.all(),
         )
 
     @space.command(
