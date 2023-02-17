@@ -79,7 +79,7 @@ class Space(commands.Cog):
             space_full_name, overwrites=overwrites
         )
 
-        await ctx.send_followup(f"**👍 · {space.mention} created**")
+        await ctx.send_followup(f"**👍 · {owner.mention}, check your space out at {space.mention}!**")
 
     @space.command(
         name="sort",
