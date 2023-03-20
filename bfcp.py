@@ -21,8 +21,8 @@ handler.setFormatter(
 logger.addHandler(handler)
 
 # activity status
-activity = discord.Activity(name="with the cockpit", type=discord.ActivityType.playing)
-intents = discord.Intents.default()
+activity = discord.Activity(name="in the cockpit", type=discord.ActivityType.playing)
+intents = discord.Intents.all()
 bot = discord.Bot(activity=activity, intents=intents)
 
 # log in
@@ -31,28 +31,23 @@ async def on_ready():
     print(f"logged in as {bot.user}")
 
 
-# load cogs
-cogs = ["space"]
-
-for cog in cogs:
-    bot.load_extension(f"cogs.{cog}")
+bot.load_extension("cogs")
 
 # environmental variables
 env = Env()
 env.read_env()
 
 # reload cogs
-@bot.slash_command(
-    name="reload",
-    description="Reloads the bot",
-    guild_ids=env.list("GUILD_ID"),
-)
-async def reload(ctx):
-    for cog in cogs:
-        bot.reload_extension(f"cogs.{cog}")
-        print(f"reloaded {cog} cog")
+# @bot.slash_command(
+#     name="reload",
+#     description="Reloads the bot",
+#     guild_ids=env.list("GUILD_ID"),
+# )
+# async def reload(ctx):
+#     bot.reload_extension("cogs")
+#     print(f"reloaded cogs")
 
-    await ctx.respond("👍")
+#     await ctx.respond("👍")
 
 
 bot.run(env.str("TOKEN"))

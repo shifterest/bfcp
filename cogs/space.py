@@ -1,5 +1,3 @@
-import asyncio
-
 import discord
 from discord.ext import commands
 from environs import Env
@@ -18,28 +16,32 @@ class Space(commands.Cog):
     # auto-move spaces
     @commands.Cog.listener()
     async def on_message(self, message):
-        # ignore threads, etc.
-        if (
-            message.channel.type != discord.ChannelType.text
-            or message.channel.id in env.list("PINNED_CHANNEL_IDS", subcast=int)
-        ):
+        channel = message.channel
+
+        if channel.type == discord.ChannelType.public_thread:
+            channel = channel.parent
+        elif channel.type != discord.ChannelType.text:
             return
-        if message.channel.category_id == env.int("CATEGORY_ID"):
+
+        if channel.id in env.list("PINNED_CHANNEL_IDS", subcast=int):
+            return
+
+        if channel.category_id == env.int("CATEGORY_ID"):
             position = 0
 
             # determine position of last pinned channel in the same category
             for id in env.list("PINNED_CHANNEL_IDS", subcast=int):
-                channel = message.guild.get_channel(id)
-                if channel.category_id == message.channel.category_id:
-                    position = max(position, channel.position)
+                pinned_channel = message.guild.get_channel(id)
+                if pinned_channel and pinned_channel.category_id == channel.category_id:
+                    position = max(position, pinned_channel.position)
 
-            await message.channel.edit(position=position + 1)
+            await channel.edit(position=position + 1)
 
     # create space
     @space.command(
         name="create",
         description="Creates a space given an owner",
-        guild_ids=env.list("GUILD_ID"),
+        guild_ids=env.list("GUILD_ID", subcast=int),
     )
     async def create(
         self,
@@ -54,7 +56,7 @@ class Space(commands.Cog):
             str, "The name of the channel", required=False, min_length=1
         ),
     ):
-        await ctx.defer()
+        await ctx.defer(ephemeral=True)
         space_category = ctx.guild.get_channel(env.int("CATEGORY_ID"))
         space_emoji = emoji or "✨"
         space_name = name or f"{owner.display_name}-space"
@@ -79,8 +81,10 @@ class Space(commands.Cog):
             space_full_name, overwrites=overwrites
         )
 
-        await ctx.send_followup(
-            f"**👍 · {owner.mention}, check your space out at {space.mention}!**",
+        await ctx.send_followup("👍", ephemeral=True)
+
+        await ctx.channel.send(
+            f"**{owner.mention}, check your space out at {space.mention}!**",
             allowed_mentions=discord.AllowedMentions.all(),
         )
 
@@ -93,41 +97,58 @@ class Space(commands.Cog):
         # this'll take a while
         await ctx.defer()
 
-        channels = ctx.guild.get_channel(env.int("CATEGORY_ID")).text_channels
+        if ctx.guild.get_channel(env.int("CATEGORY_ID")):
+            channels = ctx.guild.get_channel(env.int("CATEGORY_ID")).text_channels
+        else:
+            await ctx.send_followup("**❌ · Category not found**")
+            return
+
         first_pos = channels[0].position
         pinned_channels = []
-        channels_dates = {}
-        empty_channels_dates = {}
+        channel_timestamps = {}
+        empty_channel_timestamps = {}
 
         # fetch relevant info, separate empty channels
         for channel in channels:
             try:
                 message = await channel.fetch_message(channel.last_message_id)
-                channels_dates[channel.id] = message.created_at
+                timestamp = message.created_at
+                threads = await channel.threads
+
+                for thread in threads:
+                    thread_message = await thread.fetch_message(thread.last_message_id)
+                    thread_timestamp = thread_message.created_at
+                    if timestamp < thread_timestamp:
+                        timestamp = thread_timestamp
+
+                channel_timestamps[channel.id] = timestamp
             except (discord.NotFound, discord.HTTPException) as e:
                 if e.code in [10008, 50013]:
-                    empty_channels_dates[channel.id] = channel.created_at
+                    empty_channel_timestamps[channel.id] = channel.created_at
 
         # separate pinned channels
         for id in env.list("PINNED_CHANNEL_IDS", subcast=int):
             for channel in channels:
                 if id == channel.id:
                     pinned_channels.append(id)
-                    if id in channels_dates:
-                        channels_dates.pop(id)
+                    if id in channel_timestamps:
+                        channel_timestamps.pop(id)
                     else:
-                        empty_channels_dates.pop(id)
+                        empty_channel_timestamps.pop(id)
 
         # sort channels
         ordered_channels = (
             pinned_channels
-            + sorted(channels_dates, reverse=True, key=channels_dates.get)
-            + sorted(empty_channels_dates, reverse=True, key=empty_channels_dates.get)
+            + sorted(channel_timestamps, reverse=True, key=channel_timestamps.get)
+            + sorted(
+                empty_channel_timestamps, reverse=True, key=empty_channel_timestamps.get
+            )
         )
 
         for i, id in enumerate(ordered_channels):
-            await ctx.guild.get_channel(id).edit(position=first_pos + i)
-            await asyncio.sleep(0.5)
+            channel = await ctx.guild.get_channel(id)
+            if channel.position != first_pos + i:
+                channel.edit(position=first_pos + i)
 
         await ctx.send_followup("👍")
 
