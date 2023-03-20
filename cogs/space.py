@@ -95,7 +95,7 @@ class Space(commands.Cog):
     )
     async def sort(self, ctx):
         # this'll take a while
-        await ctx.defer()
+        await ctx.defer(ephemeral=True)
 
         if ctx.guild.get_channel(env.int("CATEGORY_ID")):
             channels = ctx.guild.get_channel(env.int("CATEGORY_ID")).text_channels
@@ -113,9 +113,8 @@ class Space(commands.Cog):
             try:
                 message = await channel.fetch_message(channel.last_message_id)
                 timestamp = message.created_at
-                threads = await channel.threads
 
-                for thread in threads:
+                for thread in channel.threads:
                     thread_message = await thread.fetch_message(thread.last_message_id)
                     thread_timestamp = thread_message.created_at
                     if timestamp < thread_timestamp:
@@ -150,7 +149,7 @@ class Space(commands.Cog):
             if channel.position != first_pos + i:
                 channel.edit(position=first_pos + i)
 
-        await ctx.send_followup("👍")
+        await ctx.send_followup("👍", ephemeral=True)
 
 
 def setup(bot):
