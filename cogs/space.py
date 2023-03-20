@@ -145,7 +145,7 @@ class Space(commands.Cog):
         )
 
         for i, id in enumerate(ordered_channels):
-            channel = await ctx.guild.get_channel(id)
+            channel = ctx.guild.get_channel(id)
             if channel.position != first_pos + i:
                 channel.edit(position=first_pos + i)
 
