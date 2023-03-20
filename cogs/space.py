@@ -147,7 +147,7 @@ class Space(commands.Cog):
         for i, id in enumerate(ordered_channels):
             channel = ctx.guild.get_channel(id)
             if channel.position != first_pos + i:
-                channel.edit(position=first_pos + i)
+                await channel.edit(position=first_pos + i)
 
         await ctx.send_followup("👍", ephemeral=True)
 
