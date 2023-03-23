@@ -70,7 +70,9 @@ class Space(commands.Cog):
                 read_messages=True,
                 send_messages=True,
             ),
-            ctx.guild.default_role: discord.PermissionOverwrite(send_messages=False),
+            ctx.guild.default_role: discord.PermissionOverwrite(
+                view_channel=False, send_messages=False
+            ),
         }
         for id in env.list("OVERWRITE_ROLE_IDS", subcast=int):
             overwrites[ctx.guild.get_role(id)] = discord.PermissionOverwrite(
