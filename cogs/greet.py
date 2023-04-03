@@ -21,7 +21,7 @@ class Greet(commands.Cog):
             greet_file = requests.get(env.str("GREET_URL"))
 
             await channel.send(
-                member.mention,
+                f"welcome, {member.mention}! make sure to read the server <#882978936022253588> so you don't miss a thing :-)",
                 file=discord.File(
                     BytesIO(greet_file.content), filename="greetings.mp4"
                 ),
