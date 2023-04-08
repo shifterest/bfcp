@@ -23,7 +23,7 @@ class Cockpit(commands.Cog):
         elif channel.type != discord.ChannelType.text:
             return
 
-        async with aiosqlite.connect("database.db") as db:
+        async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
                 "SELECT bump_on_message, bump_on_thread_message FROM spaces WHERE guild_id = ? AND space_id = ?",
                 (channel.guild.id, channel.id),
@@ -41,7 +41,7 @@ class Cockpit(commands.Cog):
         ) or (channel.type == discord.ChannelType.text and not bump_on_message):
             return
 
-        async with aiosqlite.connect("database.db") as db:
+        async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
                 "SELECT space_category_id, pinned_channel_ids FROM guilds WHERE guild_id = ?",
                 (channel.guild.id,),
@@ -76,7 +76,7 @@ class Cockpit(commands.Cog):
     ):
         await ctx.defer(ephemeral=True)
 
-        async with aiosqlite.connect("database.db") as db:
+        async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
                 "SELECT max_spaces_per_owner, bump_on_message, bump_on_thread_message FROM guilds WHERE guild_id = ?",
                 (ctx.guild.id,),
@@ -144,7 +144,7 @@ class Cockpit(commands.Cog):
     ):
         await ctx.defer(ephemeral=True)
 
-        async with aiosqlite.connect("database.db") as db:
+        async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
                 "SELECT * FROM guilds WHERE guild_id = ?", (ctx.guild.id,)
             ) as cursor:
@@ -185,7 +185,7 @@ class Cockpit(commands.Cog):
     ):
         await ctx.defer(ephemeral=True)
 
-        async with aiosqlite.connect("database.db") as db:
+        async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
                 "SELECT * FROM guilds WHERE guild_id = ?", (ctx.guild.id,)
             ) as cursor:
@@ -226,7 +226,7 @@ class Cockpit(commands.Cog):
     ):
         await ctx.defer(ephemeral=True)
 
-        async with aiosqlite.connect("database.db") as db:
+        async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
                 "SELECT * FROM guilds WHERE guild_id = ?", (ctx.guild.id,)
             ) as cursor:
@@ -289,7 +289,7 @@ class Cockpit(commands.Cog):
     ):
         await ctx.defer(ephemeral=True)
 
-        async with aiosqlite.connect("database.db") as db:
+        async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
                 "SELECT * FROM guilds WHERE guild_id = ?", (ctx.guild.id,)
             ) as cursor:
@@ -374,7 +374,7 @@ class Cockpit(commands.Cog):
         # this'll take a while
         await ctx.defer(ephemeral=True)
 
-        async with aiosqlite.connect("database.db") as db:
+        async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
                 "SELECT space_category_id, pinned_channel_ids FROM guilds WHERE guild_id = ?",
                 (ctx.guild.id,),
@@ -395,7 +395,7 @@ class Cockpit(commands.Cog):
         if ctx.guild.get_channel(space_category_id):
             channels = ctx.guild.get_channel(space_category_id).text_channels
 
-            async with aiosqlite.connect("database.db") as db:
+            async with aiosqlite.connect("data/database.db") as db:
                 async with db.execute(
                     "SELECT space_id FROM spaces WHERE guild_id = ?", (ctx.guild.id,)
                 ) as cursor:
@@ -482,7 +482,7 @@ class Cockpit(commands.Cog):
     ):
         await ctx.defer(ephemeral=True)
 
-        async with aiosqlite.connect("database.db") as db:
+        async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
                 "SELECT space_id, owner_id FROM spaces WHERE guild_id = ?",
                 (ctx.guild.id,),
@@ -548,7 +548,7 @@ class Cockpit(commands.Cog):
 
         owner = owner or ctx.author
 
-        async with aiosqlite.connect("database.db") as db:
+        async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
                 "SELECT space_category_id, max_spaces_per_owner, whitelisted_role_ids FROM guilds WHERE guild_id = ?",
                 (ctx.guild.id,),
@@ -610,7 +610,7 @@ class Cockpit(commands.Cog):
 
         space = await category.create_text_channel(name, overwrites=overwrites)
 
-        async with aiosqlite.connect("database.db") as db:
+        async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
                 "SELECT bump_on_message, bump_on_thread_message FROM guilds WHERE guild_id = ?",
                 (ctx.guild.id,),
@@ -660,7 +660,7 @@ class Cockpit(commands.Cog):
     ):
         await ctx.defer(ephemeral=True)
 
-        async with aiosqlite.connect("database.db") as db:
+        async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
                 "SELECT whitelisted_role_ids FROM guilds WHERE guild_id = ?",
                 (ctx.guild.id,),
@@ -732,7 +732,7 @@ class Cockpit(commands.Cog):
     async def configure_space(option, ctx, space, value):
         await ctx.defer(ephemeral=True)
 
-        async with aiosqlite.connect("database.db") as db:
+        async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
                 "SELECT owner_id FROM spaces WHERE guild_id = ? AND space_id = ?",
                 (ctx.guild.id, space.id),
@@ -776,7 +776,7 @@ class Cockpit(commands.Cog):
     async def configure_guild(option, ctx, value):
         await ctx.defer(ephemeral=True)
 
-        async with aiosqlite.connect("database.db") as db:
+        async with aiosqlite.connect("data/database.db") as db:
             await db.execute(
                 f"UPDATE guilds SET {option} = ? WHERE guild_id = ?",
                 (value, ctx.guild.id),

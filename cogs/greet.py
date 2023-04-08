@@ -21,7 +21,7 @@ class Greet(commands.Cog):
         ]
 
         if not after.pending:
-            async with aiosqlite.connect("database.db") as db:
+            async with aiosqlite.connect("data/database.db") as db:
                 async with db.execute(
                     "SELECT greet_channel_id, greet_attachments FROM guilds WHERE guild_id = ?",
                     (after.guild.id,),
@@ -61,7 +61,7 @@ class Greet(commands.Cog):
     ):
         await ctx.defer(ephemeral=True)
 
-        async with aiosqlite.connect("database.db") as db:
+        async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
                 "SELECT * FROM guilds WHERE guild_id = ?", (ctx.guild.id,)
             ) as cursor:

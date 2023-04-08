@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import sys
 
 import aiosqlite
@@ -28,7 +29,7 @@ class InterceptHandler(logging.Handler):
 
 
 async def initialize_db():
-    async with aiosqlite.connect("database.db") as db:
+    async with aiosqlite.connect("data/database.db") as db:
         await db.execute(
             """
                 CREATE TABLE IF NOT EXISTS spaces (
@@ -59,7 +60,7 @@ async def initialize_db():
 
 # Add guild to database
 async def initialize_guild(guild):
-    async with aiosqlite.connect("database.db") as db:
+    async with aiosqlite.connect("data/database.db") as db:
         async with db.execute(
             "SELECT * FROM guilds WHERE guild_id = ?", (guild.id,)
         ) as cursor:
@@ -91,6 +92,9 @@ logger.add(
     "logs/discord-{time}.log",
     format="{time:YYYY-MM-DD at HH:mm:ss} | {level} | {message}",
 )
+
+if not os.path.exists("data"):
+    os.makedirs("data")
 
 # Activity status
 activity = discord.Activity(name="in the cockpit", type=discord.ActivityType.playing)
