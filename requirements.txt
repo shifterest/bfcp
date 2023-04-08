@@ -1,3 +1,5 @@
-py.cord==2.4.0
+aiosqlite==0.18.0
+py.cord==2.4.1
 environs==9.5.0
+loguru==0.6.0
 requests==2.28.2
