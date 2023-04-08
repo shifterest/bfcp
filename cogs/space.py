@@ -73,7 +73,7 @@ class Cockpit(commands.Cog):
         ctx,
         owner: discord.Option(discord.User, "The owner of the space", required=False),
         name: discord.Option(
-            str, "The name of the channel", required=False, min_length=1
+            str, "The name of the space", required=False, min_length=1
         ),
     ):
         await ctx.defer()
@@ -398,7 +398,7 @@ class Cockpit(commands.Cog):
             )
 
     # pin/unpin channel
-    @space.command(
+    @guild.command(
         name="pin-channel",
         description="Pins or unpins a channel to or from the spaces category",
     )
@@ -647,7 +647,7 @@ class Cockpit(commands.Cog):
         self,
         ctx,
         name: discord.Option(
-            str, "The name of the channel", required=False, min_length=1
+            str, "The name of the space", required=False, min_length=1
         ),
     ):
         await ctx.defer()

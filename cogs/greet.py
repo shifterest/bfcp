@@ -12,7 +12,7 @@ class Greet(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    greet = discord.SlashCommandGroup("greet", "Commands related to spaces")
+    greet = discord.SlashCommandGroup("greet", "Commands related to greeting")
 
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
@@ -20,7 +20,7 @@ class Greet(commands.Cog):
             "https://cdn.discordapp.com/attachments/990389611660468254/1087258438964351006/GREETINGS_WORT-1637136825528532992.mp4"
         ]
 
-        if not after.pending:
+        if before.pending and not after.pending:
             async with aiosqlite.connect("data/database.db") as db:
                 async with db.execute(
                     "SELECT greet_channel_id, greet_attachments FROM guilds WHERE guild_id = ?",
