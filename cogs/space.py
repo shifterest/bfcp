@@ -66,6 +66,117 @@ class Cockpit(commands.Cog):
             if channel.position != position + 1:
                 await channel.edit(position=position + 1)
 
+    # create space for someone
+    @guild.command(name="create-space", description="Creates a space given an owner")
+    async def create(
+        self,
+        ctx,
+        owner: discord.Option(discord.User, "The owner of the space", required=False),
+        name: discord.Option(
+            str, "The name of the channel", required=False, min_length=1
+        ),
+    ):
+        await ctx.defer()
+
+        owner = owner or ctx.author
+
+        async with aiosqlite.connect("data/database.db") as db:
+            async with db.execute(
+                "SELECT space_category_id, max_spaces_per_owner, whitelisted_role_ids FROM guilds WHERE guild_id = ?",
+                (ctx.guild.id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row is None:
+                    await ctx.send_followup(
+                        embed=discord.Embed(
+                            description="The category for spaces is not set for this server.",
+                        )
+                    )
+                    return
+                else:
+                    space_category_id = row[0]
+                    max_spaces_per_owner = row[1]
+                    whitelisted_role_ids = json.loads(row[2])
+
+            async with db.execute(
+                "SELECT * FROM spaces WHERE guild_id = ? AND owner_id = ?",
+                (ctx.guild.id, owner.id),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                if len(rows) >= max_spaces_per_owner:
+                    await ctx.send_followup(
+                        embed=discord.Embed(
+                            description="This owner has reached the maximum amount of spaces for this server.",
+                        )
+                    )
+                    return
+
+        category = ctx.guild.get_channel(space_category_id)
+        name = name or f"{ctx.author.display_name}-space"
+        overwrites = {
+            owner: discord.PermissionOverwrite(
+                view_channel=True,
+                manage_channels=True,
+                manage_permissions=True,
+                manage_webhooks=True,
+                read_messages=True,
+                send_messages=True,
+            )
+        }
+        override_roles = [
+            ctx.guild.get_role(id)
+            for id in whitelisted_role_ids
+            if ctx.guild.get_role(id) and owner.get_role(id)
+        ]
+        if override_roles:
+            overwrites[ctx.guild.default_role] = discord.PermissionOverwrite(
+                view_channel=False, send_messages=False
+            )
+            for role in override_roles:
+                overwrites[role] = discord.PermissionOverwrite(view_channel=True)
+        else:
+            overwrites[ctx.guild.default_role] = discord.PermissionOverwrite(
+                send_messages=False
+            )
+
+        space = await category.create_text_channel(name, overwrites=overwrites)
+
+        async with aiosqlite.connect("data/database.db") as db:
+            async with db.execute(
+                "SELECT bump_on_message, bump_on_thread_message FROM guilds WHERE guild_id = ?",
+                (ctx.guild.id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row is not None:
+                    bump_on_message = row[0]
+                    bump_on_thread_message = row[1]
+
+            await db.execute(
+                "INSERT INTO spaces VALUES (?, ?, ?, ?, ?)",
+                (
+                    space.id,
+                    space.guild.id,
+                    owner.id,
+                    bump_on_message,
+                    bump_on_thread_message,
+                ),
+            )
+            await db.commit()
+
+        await ctx.send_followup(
+            embed=discord.Embed(
+                description=f"{space.mention} was successfully created for {owner.mention}.",
+                color=discord.Colour.green(),
+            )
+        )
+        await ctx.channel.send(
+            owner.mention,
+            embed=discord.Embed(
+                description=f"Check your space out at {space.mention}!",
+            ),
+            allowed_mentions=discord.AllowedMentions.all(),
+        )
+
     # add space to database
     @guild.command(
         name="add-space", description="Adds an existing space to the database"
@@ -105,7 +216,7 @@ class Cockpit(commands.Cog):
                     if space.id == space_id:
                         await ctx.send_followup(
                             embed=discord.Embed(
-                                description="This space already exists in the database.",
+                                description=f"{space.mention} already exists in the database.",
                             )
                         )
                         return
@@ -510,7 +621,7 @@ class Cockpit(commands.Cog):
                         owner_ids = [row[1] for row in rows]
                         owner_ids_to_clean = []
                         for owner_id in owner_ids:
-                            if not ctx.guild.get_channel(owner_id):
+                            if not ctx.guild.get_member(owner_id):
                                 owner_ids_to_clean.append(owner_id)
                         if owner_ids_to_clean:
                             owner_params = ", ".join("?" * len(owner_ids_to_clean))
@@ -521,7 +632,7 @@ class Cockpit(commands.Cog):
                             await db.commit()
                             await ctx.send_followup(
                                 embed=discord.Embed(
-                                    description=f"{len(space_ids)} spaces and {len(owner_ids_to_clean)} owners cleaned from the database.",
+                                    description=f"{len(space_ids_to_clean)} spaces and {len(owner_ids_to_clean)} owners cleaned from the database.",
                                     color=discord.Colour.green(),
                                 )
                             )
@@ -535,14 +646,11 @@ class Cockpit(commands.Cog):
     async def create(
         self,
         ctx,
-        owner: discord.Option(discord.User, "The owner of the space", required=False),
         name: discord.Option(
             str, "The name of the channel", required=False, min_length=1
         ),
     ):
         await ctx.defer()
-
-        owner = owner or ctx.author
 
         async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
@@ -564,7 +672,7 @@ class Cockpit(commands.Cog):
 
             async with db.execute(
                 "SELECT * FROM spaces WHERE guild_id = ? AND owner_id = ?",
-                (ctx.guild.id, owner.id),
+                (ctx.guild.id, ctx.author.id),
             ) as cursor:
                 rows = await cursor.fetchall()
                 if len(rows) >= max_spaces_per_owner:
@@ -576,10 +684,9 @@ class Cockpit(commands.Cog):
                     return
 
         category = ctx.guild.get_channel(space_category_id)
-        if not name:
-            name = f"{owner.display_name}-space"
+        name = name or f"{ctx.author.display_name}-space"
         overwrites = {
-            owner: discord.PermissionOverwrite(
+            ctx.author: discord.PermissionOverwrite(
                 view_channel=True,
                 manage_channels=True,
                 manage_permissions=True,
@@ -588,15 +695,17 @@ class Cockpit(commands.Cog):
                 send_messages=True,
             )
         }
-        if whitelisted_role_ids:
+        override_roles = [
+            ctx.guild.get_role(id)
+            for id in whitelisted_role_ids
+            if ctx.guild.get_role(id) and ctx.author.get_role(id)
+        ]
+        if override_roles:
             overwrites[ctx.guild.default_role] = discord.PermissionOverwrite(
                 view_channel=False, send_messages=False
             )
-            for id in whitelisted_role_ids:
-                if ctx.guild.get_role(id):
-                    overwrites[ctx.guild.get_role(id)] = discord.PermissionOverwrite(
-                        view_channel=True
-                    )
+            for role in override_roles:
+                overwrites[role] = discord.PermissionOverwrite(view_channel=True)
         else:
             overwrites[ctx.guild.default_role] = discord.PermissionOverwrite(
                 send_messages=False
@@ -619,7 +728,7 @@ class Cockpit(commands.Cog):
                 (
                     space.id,
                     space.guild.id,
-                    owner.id,
+                    ctx.author.id,
                     bump_on_message,
                     bump_on_thread_message,
                 ),
@@ -628,16 +737,9 @@ class Cockpit(commands.Cog):
 
         await ctx.send_followup(
             embed=discord.Embed(
-                description=f"{space.mention} was successfully created for {owner.mention}.",
+                description=f"Check your space out at {space.mention}!",
                 color=discord.Colour.green(),
             )
-        )
-        await ctx.channel.send(
-            owner.mention,
-            embed=discord.Embed(
-                description=f"Check your space out at {space.mention}!",
-            ),
-            allowed_mentions=discord.AllowedMentions.all(),
         )
 
     # restore space permissions
@@ -695,15 +797,19 @@ class Cockpit(commands.Cog):
                         send_messages=True,
                     )
                 }
-                if whitelisted_role_ids:
+                override_roles = [
+                    ctx.guild.get_role(id)
+                    for id in whitelisted_role_ids
+                    if ctx.guild.get_role(id) and ctx.author.get_role(id)
+                ]
+                if override_roles:
                     overwrites[ctx.guild.default_role] = discord.PermissionOverwrite(
                         view_channel=False, send_messages=False
                     )
-                    for id in whitelisted_role_ids:
-                        if ctx.guild.get_role(id):
-                            overwrites[
-                                ctx.guild.get_role(id)
-                            ] = discord.PermissionOverwrite(view_channel=True)
+                    for role in override_roles:
+                        overwrites[role] = discord.PermissionOverwrite(
+                            view_channel=True
+                        )
                 else:
                     overwrites[ctx.guild.default_role] = discord.PermissionOverwrite(
                         send_messages=False
