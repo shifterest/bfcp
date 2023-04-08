@@ -9,9 +9,10 @@ class Cockpit(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    guild = discord.SlashCommandGroup("guild", "Commands to configure the guild")
+
     space = discord.SlashCommandGroup("space", "Commands related to spaces")
-    config = space.create_subgroup("configure")
-    guild = space.create_subgroup("guild")
+    config = space.create_subgroup("config")
 
     # bump spaces
     @commands.Cog.listener()
@@ -66,15 +67,16 @@ class Cockpit(commands.Cog):
                 await channel.edit(position=position + 1)
 
     # add space to database
-    @space.command(name="add", description="Adds an existing space to the database")
-    @discord.default_permissions(manage_channels=True)
+    @guild.command(
+        name="add-space", description="Adds an existing space to the database"
+    )
     async def create(
         self,
         ctx,
         space: discord.Option(discord.TextChannel, "The space to add to the database"),
         owner: discord.Option(discord.User, "The owner of the space"),
     ):
-        await ctx.defer(ephemeral=True)
+        await ctx.defer()
 
         async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
@@ -86,14 +88,34 @@ class Cockpit(commands.Cog):
                     await ctx.send_followup(
                         embed=discord.Embed(
                             description="The category for spaces is not set for this server.",
-                        ),
-                        ephemeral=True,
+                        )
                     )
                     return
                 else:
                     max_spaces_per_owner = row[0]
                     bump_on_message = row[1]
                     bump_on_thread_message = row[2]
+
+            async with db.execute(
+                "SELECT space_id FROM spaces WHERE guild_id = ? AND owner_id = ?",
+                (ctx.guild.id, owner.id),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                for space_id in [row[0] for row in rows]:
+                    if space.id == space_id:
+                        await ctx.send_followup(
+                            embed=discord.Embed(
+                                description="This space already exists in the database.",
+                            )
+                        )
+                        return
+                if len(rows) >= max_spaces_per_owner:
+                    await ctx.send_followup(
+                        embed=discord.Embed(
+                            description="This owner has reached the maximum amount of spaces for this server.",
+                        )
+                    )
+                    return
 
             async with db.execute(
                 "SELECT * FROM spaces WHERE guild_id = ? AND owner_id = ?",
@@ -104,8 +126,7 @@ class Cockpit(commands.Cog):
                     await ctx.send_followup(
                         embed=discord.Embed(
                             description="This owner has reached the maximum amount of spaces for this server.",
-                        ),
-                        ephemeral=True,
+                        )
                     )
                     return
 
@@ -123,18 +144,16 @@ class Cockpit(commands.Cog):
 
         await ctx.send_followup(
             embed=discord.Embed(
-                description=f"{space.mention} is now configured and owned by {owner.mention}.",
+                description=f"{space.mention} is now owned by {owner.mention}.",
                 color=discord.Colour.green(),
-            ),
-            ephemeral=True,
+            )
         )
 
     # set category for spaces
     @guild.command(
-        name="category",
+        name="set-space-category",
         description="Sets a category in which spaces will be managed",
     )
-    @discord.default_permissions(manage_channels=True)
     async def create(
         self,
         ctx,
@@ -142,7 +161,7 @@ class Cockpit(commands.Cog):
             discord.CategoryChannel, "The category in which spaces will be managed"
         ),
     ):
-        await ctx.defer(ephemeral=True)
+        await ctx.defer()
 
         async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
@@ -154,8 +173,7 @@ class Cockpit(commands.Cog):
                         embed=discord.Embed(
                             description=f"This server is not in the database.",
                             color=discord.Colour.red(),
-                        ),
-                        ephemeral=True,
+                        )
                     )
                     return
             await db.execute(
@@ -168,22 +186,20 @@ class Cockpit(commands.Cog):
             embed=discord.Embed(
                 description=f"Spaces will be managed in `{category.name}`.",
                 color=discord.Colour.green(),
-            ),
-            ephemeral=True,
+            )
         )
 
     # set maximum spaces per owner
     @guild.command(
-        name="max-spaces-per-owner",
+        name="set-max-spaces-per-owner",
         description="Sets a maximum amount of spaces per owner",
     )
-    @discord.default_permissions(manage_channels=True)
     async def create(
         self,
         ctx,
         value: discord.Option(int, min_value=1),
     ):
-        await ctx.defer(ephemeral=True)
+        await ctx.defer()
 
         async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
@@ -195,8 +211,7 @@ class Cockpit(commands.Cog):
                         embed=discord.Embed(
                             description=f"This server is not in the database.",
                             color=discord.Colour.red(),
-                        ),
-                        ephemeral=True,
+                        )
                     )
                     return
             await db.execute(
@@ -210,21 +225,19 @@ class Cockpit(commands.Cog):
                 description=f"Maximum amount of spaces per owner set to {value}.",
                 color=discord.Colour.green(),
             ),
-            ephemeral=True,
         )
 
     # add/remove role to whitelist
     @guild.command(
-        name="whitelist",
+        name="modify-whitelist",
         description="Adds or removes a role to and from the default whitelist",
     )
-    @discord.default_permissions(manage_channels=True)
     async def create(
         self,
         ctx,
         role: discord.Option(discord.Role, "The role to add/remove"),
     ):
-        await ctx.defer(ephemeral=True)
+        await ctx.defer()
 
         async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
@@ -237,7 +250,6 @@ class Cockpit(commands.Cog):
                             description=f"This server is not in the database.",
                             color=discord.Colour.red(),
                         ),
-                        ephemeral=True,
                     )
                     return
 
@@ -265,7 +277,6 @@ class Cockpit(commands.Cog):
                     description=f"{role.mention} was added to the whitelist.",
                     color=discord.Colour.green(),
                 ),
-                ephemeral=True,
             )
         else:
             await ctx.send_followup(
@@ -273,21 +284,19 @@ class Cockpit(commands.Cog):
                     description=f"{role.mention} was removed from the whitelist.",
                     color=discord.Colour.green(),
                 ),
-                ephemeral=True,
             )
 
     # pin/unpin channel
     @space.command(
-        name="pin",
+        name="pin-channel",
         description="Pins or unpins a channel to or from the spaces category",
     )
-    @discord.default_permissions(manage_channels=True)
     async def create(
         self,
         ctx,
         channel: discord.Option(discord.TextChannel, "The channel to pin/unpin"),
     ):
-        await ctx.defer(ephemeral=True)
+        await ctx.defer()
 
         async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
@@ -300,7 +309,6 @@ class Cockpit(commands.Cog):
                             description=f"This server is not in the database.",
                             color=discord.Colour.red(),
                         ),
-                        ephemeral=True,
                     )
                     return
 
@@ -328,7 +336,6 @@ class Cockpit(commands.Cog):
                     description=f"{channel.mention} is now pinned.",
                     color=discord.Colour.green(),
                 ),
-                ephemeral=True,
             )
         else:
             await ctx.send_followup(
@@ -336,15 +343,13 @@ class Cockpit(commands.Cog):
                     description=f"{channel.mention} is now unpinned.",
                     color=discord.Colour.green(),
                 ),
-                ephemeral=True,
             )
 
-    # configure default bump on message
+    # set default bump on message
     @guild.command(
-        name="bump-on-message",
+        name="set-bump-on-message",
         description="Configures whether sending a message in a space bumps it",
     )
-    @discord.default_permissions(manage_channels=True)
     async def create(
         self,
         ctx,
@@ -352,12 +357,11 @@ class Cockpit(commands.Cog):
     ):
         await Cockpit.configure_guild("bump-on-thread", ctx, value)
 
-    # configure default bump on thread message
+    # set bump on thread message
     @guild.command(
-        name="bump-on-thread-message",
+        name="set-bump-on-thread-message",
         description="Configures whether sending a message in a space's threads bumps it",
     )
-    @discord.default_permissions(manage_channels=True)
     async def create(
         self,
         ctx,
@@ -366,13 +370,12 @@ class Cockpit(commands.Cog):
         await Cockpit.configure_guild("bump-on-thread-message", ctx, value)
 
     # sort spaces
-    @space.command(
-        name="sort", description="Sorts spaces by activity in descending order"
+    @guild.command(
+        name="sort-spaces", description="Sorts spaces by activity in descending order"
     )
-    @discord.default_permissions(manage_channels=True)
     async def sort(self, ctx):
         # this'll take a while
-        await ctx.defer(ephemeral=True)
+        await ctx.defer()
 
         async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
@@ -385,7 +388,6 @@ class Cockpit(commands.Cog):
                         embed=discord.Embed(
                             description="The category for spaces is not set for this server.",
                         ),
-                        ephemeral=True,
                     )
                     return
                 else:
@@ -410,7 +412,6 @@ class Cockpit(commands.Cog):
             if not spaces:
                 await ctx.send_followup(
                     embed=discord.Embed(description="There are no spaces to sort."),
-                    ephemeral=True,
                 )
                 return
         else:
@@ -419,7 +420,6 @@ class Cockpit(commands.Cog):
                     description="The category for spaces configured for this server was not found.",
                     color=discord.Colour.red(),
                 ),
-                ephemeral=True,
             )
             return
 
@@ -462,15 +462,13 @@ class Cockpit(commands.Cog):
                 description=f"Spaces were successfully sorted.",
                 color=discord.Colour.green(),
             ),
-            ephemeral=True,
         )
 
     # clean space database
-    @space.command(
-        name="clean",
+    @guild.command(
+        name="clean-space-db",
         description="Cleans unresolved spaces and/or owners in this server from the database",
     )
-    @discord.default_permissions(manage_channels=True)
     async def create(
         self,
         ctx,
@@ -480,7 +478,7 @@ class Cockpit(commands.Cog):
             required=False,
         ),
     ):
-        await ctx.defer(ephemeral=True)
+        await ctx.defer()
 
         async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
@@ -489,50 +487,48 @@ class Cockpit(commands.Cog):
             ) as cursor:
                 rows = await cursor.fetchall()
                 if rows:
-                    space_ids = [
-                        row[0] for row in rows if not ctx.guild.get_channel(row[0])
-                    ]
-                    if space_ids:
-                        space_params = ", ".join("?" * len(space_ids))
+                    space_ids = [row[0] for row in rows]
+                    space_ids_to_clean = []
+                    for space_id in space_ids:
+                        if not ctx.guild.get_channel(space_id):
+                            space_ids_to_clean.append(space_id)
+                    if space_ids_to_clean:
+                        space_params = ", ".join("?" * len(space_ids_to_clean))
                         await db.execute(
                             f"DELETE FROM spaces WHERE space_id IN ({space_params})",
-                            space_ids,
+                            space_ids_to_clean,
                         )
                         await db.commit()
                     if ignore_owners:
                         await ctx.send_followup(
                             embed=discord.Embed(
-                                description=f"{len(space_ids)} spaces cleaned from the database.",
+                                description=f"{len(space_ids_to_clean)} spaces cleaned from the database.",
                                 color=discord.Colour.green(),
-                            ),
-                            ephemeral=True,
+                            )
                         )
                     else:
-                        owner_ids = [
-                            row[1] for row in rows if not ctx.guild.get_member(row[1])
-                        ]
-                        if owner_ids:
-                            owner_params = ", ".join("?" * len(owner_ids))
+                        owner_ids = [row[1] for row in rows]
+                        owner_ids_to_clean = []
+                        for owner_id in owner_ids:
+                            if not ctx.guild.get_channel(owner_id):
+                                owner_ids_to_clean.append(owner_id)
+                        if owner_ids_to_clean:
+                            owner_params = ", ".join("?" * len(owner_ids_to_clean))
                             await db.execute(
                                 f"DELETE FROM spaces WHERE owner_id IN ({owner_params})",
-                                owner_ids,
+                                owner_ids_to_clean,
                             )
                             await db.commit()
                             await ctx.send_followup(
                                 embed=discord.Embed(
-                                    description=f"{len(space_ids)} spaces and {len(owner_ids)} owners cleaned from the database.",
+                                    description=f"{len(space_ids)} spaces and {len(owner_ids_to_clean)} owners cleaned from the database.",
                                     color=discord.Colour.green(),
-                                ),
-                                ephemeral=True,
+                                )
                             )
                 else:
                     await ctx.send_followup(
-                        embed=discord.Embed(
-                            description="There are no spaces to clean."
-                        ),
-                        ephemeral=True,
+                        embed=discord.Embed(description="There are no spaces to clean.")
                     )
-                    return
 
     # create space
     @space.command(name="create", description="Creates a space given an owner")
@@ -544,7 +540,7 @@ class Cockpit(commands.Cog):
             str, "The name of the channel", required=False, min_length=1
         ),
     ):
-        await ctx.defer(ephemeral=True)
+        await ctx.defer()
 
         owner = owner or ctx.author
 
@@ -558,8 +554,7 @@ class Cockpit(commands.Cog):
                     await ctx.send_followup(
                         embed=discord.Embed(
                             description="The category for spaces is not set for this server.",
-                        ),
-                        ephemeral=True,
+                        )
                     )
                     return
                 else:
@@ -576,8 +571,7 @@ class Cockpit(commands.Cog):
                     await ctx.send_followup(
                         embed=discord.Embed(
                             description="This owner has reached the maximum amount of spaces for this server.",
-                        ),
-                        ephemeral=True,
+                        )
                     )
                     return
 
@@ -636,8 +630,7 @@ class Cockpit(commands.Cog):
             embed=discord.Embed(
                 description=f"{space.mention} was successfully created for {owner.mention}.",
                 color=discord.Colour.green(),
-            ),
-            ephemeral=True,
+            )
         )
         await ctx.channel.send(
             owner.mention,
@@ -658,7 +651,7 @@ class Cockpit(commands.Cog):
             discord.TextChannel, "The space to restore permissions for"
         ),
     ):
-        await ctx.defer(ephemeral=True)
+        await ctx.defer()
 
         async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
@@ -671,7 +664,6 @@ class Cockpit(commands.Cog):
                         embed=discord.Embed(
                             description="The category for spaces is not set for this server.",
                         ),
-                        ephemeral=True,
                     )
                     return
                 else:
@@ -687,7 +679,6 @@ class Cockpit(commands.Cog):
                         embed=discord.Embed(
                             description=f"{space.mention} is not a space."
                         ),
-                        ephemeral=True,
                     )
                     return
                 else:
@@ -725,12 +716,11 @@ class Cockpit(commands.Cog):
                 description=f"Permissions for {space.mention} successfully restored.",
                 color=discord.Colour.green(),
             ),
-            ephemeral=True,
         )
 
     # configure space
     async def configure_space(option, ctx, space, value):
-        await ctx.defer(ephemeral=True)
+        await ctx.defer()
 
         async with aiosqlite.connect("data/database.db") as db:
             async with db.execute(
@@ -742,8 +732,7 @@ class Cockpit(commands.Cog):
                     await ctx.send_followup(
                         embed=discord.Embed(
                             description=f"{space.mention} is not a space."
-                        ),
-                        ephemeral=True,
+                        )
                     )
                     return
                 else:
@@ -760,21 +749,19 @@ class Cockpit(commands.Cog):
                     embed=discord.Embed(
                         description=f"`{option}` for {space.mention} is now set to `{value}`.",
                         color=discord.Colour.green(),
-                    ),
-                    ephemeral=True,
+                    )
                 )
             else:
                 await ctx.send_followup(
                     embed=discord.Embed(
                         description=f"You do not own {space.mention}.",
                         color=discord.Colour.green(),
-                    ),
-                    ephemeral=True,
+                    )
                 )
 
     # configure guild
     async def configure_guild(option, ctx, value):
-        await ctx.defer(ephemeral=True)
+        await ctx.defer()
 
         async with aiosqlite.connect("data/database.db") as db:
             await db.execute(
@@ -787,8 +774,7 @@ class Cockpit(commands.Cog):
                 embed=discord.Embed(
                     description=f"`{option}` for **{ctx.guild.name}** is now set to `{value}`.",
                     color=discord.Colour.green(),
-                ),
-                ephemeral=True,
+                )
             )
 
     # configure bump on message
