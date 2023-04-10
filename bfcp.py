@@ -1,12 +1,12 @@
-import json
 import logging
 import os
 import sys
 
-import aiosqlite
 import discord
 from environs import Env
 from loguru import logger
+
+from stuff import db
 
 
 class InterceptHandler(logging.Handler):
@@ -26,62 +26,6 @@ class InterceptHandler(logging.Handler):
         logger.opt(depth=depth, exception=record.exc_info).log(
             level, record.getMessage()
         )
-
-
-async def initialize_db():
-    async with aiosqlite.connect("data/database.db") as db:
-        await db.execute(
-            """
-                CREATE TABLE IF NOT EXISTS spaces (
-                    space_id INTEGER PRIMARY KEY,
-                    guild_id INTEGER,
-                    owner_id INTEGER,
-                    bump_on_message INTEGER,
-                    bump_on_thread_message INTEGER
-                );
-            """
-        )
-        await db.execute(
-            """
-                CREATE TABLE IF NOT EXISTS guilds (
-                    guild_id INTEGER PRIMARY KEY,
-                    greet_channel_id INTEGER,
-                    greet_attachments TEXT,
-                    space_category_id INTEGER,
-                    max_spaces_per_owner INTEGER,
-                    pinned_channel_ids TEXT,
-                    whitelisted_role_ids TEXT,
-                    bump_on_message INTEGER,
-                    bump_on_thread_message INTEGER
-                );
-            """
-        )
-
-
-# Add guild to database
-async def initialize_guild(guild):
-    async with aiosqlite.connect("data/database.db") as db:
-        async with db.execute(
-            "SELECT * FROM guilds WHERE guild_id = ?", (guild.id,)
-        ) as cursor:
-            row = await cursor.fetchone()
-            if row is None:
-                await db.execute(
-                    "INSERT INTO guilds VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        guild.id,
-                        None,
-                        json.dumps([]),
-                        None,
-                        1,
-                        json.dumps([]),
-                        json.dumps([]),
-                        True,
-                        True,
-                    ),
-                )
-                await db.commit()
-                logger.info(f"Added {guild.name} (ID {guild.id}) to database.")
 
 
 # Logging
@@ -112,16 +56,16 @@ env.read_env()
 async def on_ready():
     logger.info(f"Logged in as {bot.user}")
 
-    await initialize_db()
-
+    # Initialize database
+    await db.initialize_db()
     for guild in bot.guilds:
-        await initialize_guild(guild)
+        await db.initialize_guild(guild)
 
 
 # Add new guilds
 @bot.event
 async def on_guild_join(guild):
-    await initialize_guild(guild)
+    await db.initialize_guild(guild)
 
 
 # Log in

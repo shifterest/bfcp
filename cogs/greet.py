@@ -1,57 +1,47 @@
-import json
 import random
 from io import BytesIO
 
-import aiosqlite
 import discord
 import requests
 from discord.ext import commands
+
+from stuff.db import autocomplete_greet_attachment, Guild
 
 
 class Greet(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    greet = discord.SlashCommandGroup("greet", "Commands related to greeting")
+    greet_group = discord.SlashCommandGroup("greet", "Commands related to greeting")
 
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
-        greet_attachments = [
-            "https://cdn.discordapp.com/attachments/990389611660468254/1087258438964351006/GREETINGS_WORT-1637136825528532992.mp4"
-        ]
+        guild_db = Guild()
+        await guild_db.async_init(after.guild.id)
+        if not (
+            await guild_db.exists
+            and await guild_db.greet_channel_id
+            and await guild_db.greet_attachments
+        ):
+            return
 
         if before.pending and not after.pending:
-            async with aiosqlite.connect("data/database.db") as db:
-                async with db.execute(
-                    "SELECT greet_channel_id, greet_attachments FROM guilds WHERE guild_id = ?",
-                    (after.guild.id,),
-                ) as cursor:
-                    row = await cursor.fetchone()
-                    if row is None:
-                        return
-                    else:
-                        greet_channel_id = row[0]
-                        # greet_attachments = json.loads(row[1])
-
-            greet_channel = after.guild.get_channel(greet_channel_id)
-
+            greet_channel = after.guild.get_channel(guild_db.greet_channel_id)
             if greet_channel:
-                greet_file = requests.get(random.choice(greet_attachments))
+                greet_attachment = requests.get(
+                    random.choice(guild_db.greet_attachments)
+                )
 
                 await greet_channel.send(
-                    f"welcome, {after.mention}! make sure to read the server <#882978936022253588> so you don't miss a thing :-)",
+                    f"{guild_db.greet_message}",
                     file=discord.File(
-                        BytesIO(greet_file.content), filename="greetings.mp4"
+                        BytesIO(greet_attachment.content), filename="greetings.mp4"
                     ),
                     allowed_mentions=discord.AllowedMentions.all(),
                 )
 
     # Set greet channel
-    @greet.command(
-        name="category",
-        description="Sets the greet channel",
-    )
-    @discord.default_permissions(manage_channels=True)
+    @greet_group.command(name="set-channel", description="Sets the greet channel")
     async def create(
         self,
         ctx,
@@ -59,35 +49,90 @@ class Greet(commands.Cog):
             discord.TextChannel, "The channel to set as the green channel"
         ),
     ):
-        await ctx.defer(ephemeral=True)
+        await ctx.defer()
 
-        async with aiosqlite.connect("data/database.db") as db:
-            async with db.execute(
-                "SELECT * FROM guilds WHERE guild_id = ?", (ctx.guild.id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is None:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description=f"This server is not in the database.",
-                            color=discord.Colour.red(),
-                        ),
-                        ephemeral=True,
-                    )
-                    return
-            await db.execute(
-                "UPDATE guilds SET greet_channel_id = ? WHERE guild_id = ?",
-                (channel.id, ctx.guild.id),
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if await guild_db.check_exists(ctx):
+            guild_db.set_greet_channel(channel.id)
+            await ctx.send_followup(
+                embed=discord.Embed(
+                    description=f"Greetings channel set to {channel.mention}.",
+                    color=discord.Colour.green(),
+                )
             )
-            await db.commit()
 
-        await ctx.send_followup(
-            embed=discord.Embed(
-                description=f"Greetings will ben sent in `{channel.name}`.",
-                color=discord.Colour.green(),
-            ),
-            ephemeral=True,
-        )
+    # Set greet message
+    @greet_group.command(name="set-message", description="Sets the greet message")
+    async def create(
+        self,
+        ctx,
+        message: discord.Option(str, "The greet message"),
+    ):
+        await ctx.defer()
+
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if await guild_db.check_exists(ctx):
+            guild_db.set_greet_message(message)
+            await ctx.send_followup(
+                embed=discord.Embed(
+                    description="Greetings message set.",
+                    color=discord.Colour.green(),
+                )
+            )
+
+    # Add greet attachment
+    @greet_group.command(
+        name="add-attachment",
+        description="Adds a greet attachment URL to the list of options to pick from randomly",
+    )
+    async def create(
+        self,
+        ctx,
+        url: discord.Option(str, "The greet attachment URL to add"),
+    ):
+        await ctx.defer()
+
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if await guild_db.check_exists(ctx):
+            await guild_db.add_to_greet_attachments(url)
+            await ctx.send_followup(
+                embed=discord.Embed(
+                    description=f"Greetings [attachment]({url}) added.",
+                    color=discord.Colour.green(),
+                )
+            )
+
+    # Remove greet attachment
+    @greet_group.command(
+        name="remove-attachment",
+        description="Removes a greet attachment URL from the list of options to pick from randomly",
+    )
+    async def create(
+        self,
+        ctx,
+        url: discord.Option(
+            str,
+            "The greet attachment URL to remove",
+            autocomplete=autocomplete_greet_attachment,
+        ),
+    ):
+        await ctx.defer()
+
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if await guild_db.check_exists(ctx) and await guild_db.check_greet_attachment(
+            ctx, url
+        ):
+            await guild_db.remove_from_greet_attachments(url)
+            await ctx.send_followup(
+                embed=discord.Embed(
+                    description=f"Greetings [attachment]({url}) removed.",
+                    color=discord.Colour.green(),
+                )
+            )
 
 
 def setup(bot):

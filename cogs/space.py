@@ -1,118 +1,21 @@
-import json
-
 import aiosqlite
 import discord
 from discord.ext import commands
+
+from stuff.db import Guild, Owner, Space
 
 
 class Cockpit(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    guild = discord.SlashCommandGroup("guild", "Commands to configure the guild")
+    guild_group = discord.SlashCommandGroup("guild", "Commands to configure the guild")
 
-    space = discord.SlashCommandGroup("space", "Commands related to spaces")
-    config = space.create_subgroup("config")
+    space_group = discord.SlashCommandGroup("space", "Commands related to spaces")
+    config_group = space_group.create_subgroup("config")
 
-    # bump spaces
-    @commands.Cog.listener()
-    async def on_message(self, message):
-        channel = message.channel
-
-        if channel.type == discord.ChannelType.public_thread:
-            channel = channel.parent
-        elif channel.type != discord.ChannelType.text:
-            return
-
-        async with aiosqlite.connect("data/database.db") as db:
-            async with db.execute(
-                "SELECT bump_on_message, bump_on_thread_message FROM spaces WHERE guild_id = ? AND space_id = ?",
-                (channel.guild.id, channel.id),
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is None:
-                    return
-                else:
-                    bump_on_message = row[0]
-                    bump_on_thread_message = row[1]
-
-        if (
-            channel.type == discord.ChannelType.public_thread
-            and not bump_on_thread_message
-        ) or (channel.type == discord.ChannelType.text and not bump_on_message):
-            return
-
-        async with aiosqlite.connect("data/database.db") as db:
-            async with db.execute(
-                "SELECT space_category_id, pinned_channel_ids FROM guilds WHERE guild_id = ?",
-                (channel.guild.id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is not None:
-                    space_category_id = row[0]
-                    pinned_channel_ids = json.loads(row[1])
-
-        if channel.id in pinned_channel_ids:
-            return
-
-        if channel.category_id == space_category_id:
-            position = 0
-
-            for id in pinned_channel_ids:
-                pinned_channel = message.guild.get_channel(id)
-                if pinned_channel and pinned_channel.category_id == channel.category_id:
-                    position = max(position, pinned_channel.position)
-
-            if channel.position != position + 1:
-                await channel.edit(position=position + 1)
-
-    # create space for someone
-    @guild.command(name="create-space", description="Creates a space given an owner")
-    async def create(
-        self,
-        ctx,
-        owner: discord.Option(discord.User, "The owner of the space", required=False),
-        name: discord.Option(
-            str, "The name of the space", required=False, min_length=1
-        ),
-    ):
-        await ctx.defer()
-
-        owner = owner or ctx.author
-
-        async with aiosqlite.connect("data/database.db") as db:
-            async with db.execute(
-                "SELECT space_category_id, max_spaces_per_owner, whitelisted_role_ids FROM guilds WHERE guild_id = ?",
-                (ctx.guild.id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is None:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description="The category for spaces is not set for this server.",
-                        )
-                    )
-                    return
-                else:
-                    space_category_id = row[0]
-                    max_spaces_per_owner = row[1]
-                    whitelisted_role_ids = json.loads(row[2])
-
-            async with db.execute(
-                "SELECT * FROM spaces WHERE guild_id = ? AND owner_id = ?",
-                (ctx.guild.id, owner.id),
-            ) as cursor:
-                rows = await cursor.fetchall()
-                if len(rows) >= max_spaces_per_owner:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description="This owner has reached the maximum amount of spaces for this server.",
-                        )
-                    )
-                    return
-
-        category = ctx.guild.get_channel(space_category_id)
-        name = name or f"{ctx.author.display_name}-space"
+    # Overwrites
+    def overwrites(owner, guild, whitelisted_role_ids):
         overwrites = {
             owner: discord.PermissionOverwrite(
                 view_channel=True,
@@ -124,44 +27,193 @@ class Cockpit(commands.Cog):
             )
         }
         override_roles = [
-            ctx.guild.get_role(id)
+            guild.get_role(id)
             for id in whitelisted_role_ids
-            if ctx.guild.get_role(id) and owner.get_role(id)
+            if guild.get_role(id) and owner.get_role(id)
         ]
         if override_roles:
-            overwrites[ctx.guild.default_role] = discord.PermissionOverwrite(
+            overwrites[guild.default_role] = discord.PermissionOverwrite(
                 view_channel=False, send_messages=False
             )
             for role in override_roles:
                 overwrites[role] = discord.PermissionOverwrite(view_channel=True)
         else:
-            overwrites[ctx.guild.default_role] = discord.PermissionOverwrite(
+            overwrites[guild.default_role] = discord.PermissionOverwrite(
                 send_messages=False
             )
+        return overwrites
 
-        space = await category.create_text_channel(name, overwrites=overwrites)
+    # Bump spaces
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        channel = message.channel
 
-        async with aiosqlite.connect("data/database.db") as db:
-            async with db.execute(
-                "SELECT bump_on_message, bump_on_thread_message FROM guilds WHERE guild_id = ?",
-                (ctx.guild.id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is not None:
-                    bump_on_message = row[0]
-                    bump_on_thread_message = row[1]
+        if channel.type == discord.ChannelType.public_thread:
+            channel = channel.parent
+        elif channel.type != discord.ChannelType.text:
+            return
 
-            await db.execute(
-                "INSERT INTO spaces VALUES (?, ?, ?, ?, ?)",
-                (
-                    space.id,
-                    space.guild.id,
-                    owner.id,
-                    bump_on_message,
-                    bump_on_thread_message,
-                ),
+        space_db = Space()
+        await space_db.async_init(channel.id, channel.guild.id)
+        if (
+            not space_db.exists
+            or (
+                channel.type == discord.ChannelType.public_thread
+                and not space_db.bump_on_thread_message
             )
-            await db.commit()
+            or (
+                channel.type == discord.ChannelType.text
+                and not space_db.bump_on_message
+            )
+        ):
+            return
+
+        guild_db = Guild()
+        await guild_db.async_init(channel.guild.id)
+        if not guild_db.exists and channel.id in guild_db.pinned_channel_ids:
+            return
+
+        if channel.category_id == guild_db.space_category_id:
+            position = 0
+
+            for id in guild_db.pinned_channel_ids:
+                pinned_channel = message.guild.get_channel(id)
+                if pinned_channel and pinned_channel.category_id == channel.category_id:
+                    position = max(position, pinned_channel.position)
+
+            if channel.position != position + 1:
+                await channel.edit(position=position + 1)
+
+    # Display guild info
+    @guild_group.command(
+        name="info", description="Displays information about this server"
+    )
+    async def create(self, ctx):
+        await ctx.defer()
+
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if await guild_db.check_exists(ctx):
+            greet_attachments = (
+                ", ".join(guild_db.greet_attachments)
+                if guild_db.greet_attachments
+                else "None"
+            )
+            space_category = (
+                f"<#{guild_db.space_category_id}>"
+                if guild_db.space_category_id
+                else "None"
+            )
+            space_owner_role = (
+                f"<@&{guild_db.space_owner_role_id}>"
+                if guild_db.space_owner_role_id
+                else "None"
+            )
+            pinned_channels = (
+                ", ".join(f"<#{id}>" for id in guild_db.pinned_channel_ids)
+                if guild_db.pinned_channel_ids
+                else "None"
+            )
+            whitelisted_roles = (
+                ", ".join(f"<@&{id}>" for id in guild_db.whitelisted_role_ids)
+                if guild_db.whitelisted_role_ids
+                else "None"
+            )
+            await ctx.send_followup(
+                embed=discord.Embed(
+                    title=f"About {ctx.guild.name}",
+                    description=f"""Greet channel: **{guild_db.greet_channel_id}**
+                    Greet attachments: **{greet_attachments}**
+                    Space category: **{space_category}**
+                    Space owner role: **{space_owner_role}**
+                    Maximum spaces per owner: **{guild_db.max_spaces_per_owner}**
+                    Pinned channels: **{pinned_channels}**
+                    Whitelisted roles: **{whitelisted_roles}**
+                    Bump on message: **{guild_db.bump_on_message}**
+                    Bump on thread message: **{guild_db.bump_on_thread_message}**""",
+                    color=discord.Colour.green(),
+                )
+            )
+
+    # Display space info
+    @space_group.command(name="info", description="Displays information about a space")
+    async def create(
+        self,
+        ctx,
+        space: discord.Option(discord.TextChannel, "The space to get info for"),
+    ):
+        await ctx.defer()
+
+        space_db = Space()
+        await space_db.async_init(space.id, ctx.guild.id)
+        if await space_db.check_exists(ctx, True):
+            await ctx.send_followup(
+                embed=discord.Embed(
+                    title=f"About {space.mention}",
+                    description=f"""Owner: **<@{space_db.owner_id}>**
+                    Bump on message: **{space_db.bump_on_message}**
+                    Bump on thread message: **{space_db.bump_on_thread_message}**""",
+                    color=discord.Colour.green(),
+                )
+            )
+
+    # Create space for specific owner
+    @guild_group.command(
+        name="create-space", description="Creates a space given an owner"
+    )
+    async def create(
+        self,
+        ctx,
+        owner: discord.Option(discord.User, "The owner of the space", required=False),
+        name: discord.Option(
+            str, "The name of the space", required=False, min_length=1
+        ),
+    ):
+        await ctx.defer()
+
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if not await guild_db.check_exists(ctx) and not await guild_db.check_category(
+            ctx
+        ):
+            return
+
+        owner_db = Owner()
+        await owner_db.async_init(ctx.guild.id, owner.id)
+        if not await owner_db.check_max_spaces(ctx, guild_db.max_spaces_per_owner):
+            return
+
+        owner = owner or ctx.author
+        name = name or f"{ctx.author.display_name}-space"
+        category = ctx.guild.get_channel(guild_db.space_category_id)
+        space = await category.create_text_channel(
+            name,
+            overwrites=Cockpit.overwrites(
+                owner, ctx.guild, guild_db.whitelisted_role_ids
+            ),
+        )
+
+        await Space.add(
+            (
+                space.id,
+                space.guild.id,
+                owner.id,
+                guild_db.bump_on_message,
+                guild_db.bump_on_thread_message,
+            )
+        )
+
+        space_owner_role = ctx.guild.get_role(guild_db.space_owner_role_id)
+        try:
+            await owner.add_roles(space_owner_role)
+        except discord.Forbidden:
+            await ctx.send_followup(
+                embed=discord.Embed(
+                    description=f"Failed to modify {space_owner_role.mention}> for {owner.mention}.",
+                    color=discord.Colour.red(),
+                )
+            )
+            return
 
         await ctx.send_followup(
             embed=discord.Embed(
@@ -177,8 +229,8 @@ class Cockpit(commands.Cog):
             allowed_mentions=discord.AllowedMentions.all(),
         )
 
-    # add space to database
-    @guild.command(
+    # Add space to database
+    @guild_group.command(
         name="add-space", description="Adds an existing space to the database"
     )
     async def create(
@@ -189,121 +241,218 @@ class Cockpit(commands.Cog):
     ):
         await ctx.defer()
 
-        async with aiosqlite.connect("data/database.db") as db:
-            async with db.execute(
-                "SELECT max_spaces_per_owner, bump_on_message, bump_on_thread_message FROM guilds WHERE guild_id = ?",
-                (ctx.guild.id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is None:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description="The category for spaces is not set for this server.",
-                        )
-                    )
-                    return
-                else:
-                    max_spaces_per_owner = row[0]
-                    bump_on_message = row[1]
-                    bump_on_thread_message = row[2]
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if not await guild_db.check_exists(ctx) and not await guild_db.check_category(
+            ctx
+        ):
+            return
 
-            async with db.execute(
-                "SELECT space_id FROM spaces WHERE guild_id = ? AND owner_id = ?",
-                (ctx.guild.id, owner.id),
-            ) as cursor:
-                rows = await cursor.fetchall()
-                for space_id in [row[0] for row in rows]:
-                    if space.id == space_id:
-                        await ctx.send_followup(
-                            embed=discord.Embed(
-                                description=f"{space.mention} already exists in the database.",
-                            )
-                        )
-                        return
-                if len(rows) >= max_spaces_per_owner:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description="This owner has reached the maximum amount of spaces for this server.",
-                        )
-                    )
-                    return
+        space_db = Space()
+        await space_db.async_init(space.id, space.guild.id)
+        if not await space_db.check_exists(ctx, False):
+            return
 
-            async with db.execute(
-                "SELECT * FROM spaces WHERE guild_id = ? AND owner_id = ?",
-                (ctx.guild.id, owner.id),
-            ) as cursor:
-                rows = await cursor.fetchall()
-                if len(rows) >= max_spaces_per_owner:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description="This owner has reached the maximum amount of spaces for this server.",
-                        )
-                    )
-                    return
+        owner_db = Owner()
+        await owner_db.async_init(ctx.guild.id, owner.id)
+        if not await owner_db.check_max_spaces(ctx, guild_db.max_spaces_per_owner):
+            return
 
-            await db.execute(
-                "INSERT INTO spaces VALUES (?, ?, ?, ?, ?)",
-                (
-                    space.id,
-                    space.guild.id,
-                    owner.id,
-                    bump_on_message,
-                    bump_on_thread_message,
-                ),
+        await Space.add(
+            (
+                space.id,
+                space.guild.id,
+                owner.id,
+                guild_db.bump_on_message,
+                guild_db.bump_on_thread_message,
             )
-            await db.commit()
+        )
+
+        space_owner_role = ctx.guild.get_role(guild_db.space_owner_role_id)
+        try:
+            await owner.add_roles(space_owner_role)
+        except discord.Forbidden:
+            await ctx.send_followup(
+                embed=discord.Embed(
+                    description=f"Failed to modify {space_owner_role.mention} for {owner.mention}.",
+                    color=discord.Colour.red(),
+                )
+            )
+            return
 
         await ctx.send_followup(
             embed=discord.Embed(
-                description=f"{space.mention} is now owned by {owner.mention}.",
+                description=f"{space.mention} now owned by {owner.mention}.",
                 color=discord.Colour.green(),
             )
         )
 
-    # set category for spaces
-    @guild.command(
-        name="set-space-category",
-        description="Sets a category in which spaces will be managed",
+    # Set owner for a space
+    @guild_group.command(
+        name="set-space-owner",
+        description="Sets an owner for a space",
     )
     async def create(
         self,
         ctx,
-        category: discord.Option(
-            discord.CategoryChannel, "The category in which spaces will be managed"
-        ),
+        space: discord.Option(discord.TextChannel, "The space to set the owner for"),
+        owner: discord.Option(discord.User, "The new owner of the space"),
     ):
         await ctx.defer()
 
-        async with aiosqlite.connect("data/database.db") as db:
-            async with db.execute(
-                "SELECT * FROM guilds WHERE guild_id = ?", (ctx.guild.id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is None:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description=f"This server is not in the database.",
-                            color=discord.Colour.red(),
-                        )
-                    )
-                    return
-            await db.execute(
-                "UPDATE guilds SET space_category_id = ? WHERE guild_id = ?",
-                (category.id, ctx.guild.id),
-            )
-            await db.commit()
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if not await guild_db.check_exists(ctx) and not await guild_db.check_category(
+            ctx
+        ):
+            return
+
+        space_db = Space()
+        await space_db.async_init(space.id, space.guild.id)
+        if not await space_db.check_exists(ctx, True):
+            return
+
+        await space_db.set_owner(owner.id)
 
         await ctx.send_followup(
             embed=discord.Embed(
-                description=f"Spaces will be managed in `{category.name}`.",
+                description=f"{space.mention} now owned by {owner.mention}.",
                 color=discord.Colour.green(),
             )
         )
 
-    # set maximum spaces per owner
-    @guild.command(
+    # Set category for spaces
+    @guild_group.command(
+        name="set-space-category",
+        description="Sets or unsets a category for spaces",
+    )
+    async def create(
+        self,
+        ctx,
+        category: discord.Option(discord.CategoryChannel, "The category to set/unset"),
+    ):
+        await ctx.defer()
+
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if await guild_db.check_exists(ctx):
+            if guild_db.space_category_id == category.id:
+                await guild_db.set_category(None)
+                await ctx.send_followup(
+                    embed=discord.Embed(
+                        description="Category for spaces unset.",
+                        color=discord.Colour.green(),
+                    )
+                )
+            else:
+                await guild_db.set_category(category.id)
+                await ctx.send_followup(
+                    embed=discord.Embed(
+                        description=f"Category for spaces set to **{category.mention}**.",
+                        color=discord.Colour.green(),
+                    )
+                )
+
+    # Set role for space owners
+    @guild_group.command(
+        name="set-space-owner-role",
+        description="Sets or unsets a role for space owners",
+    )
+    async def create(
+        self,
+        ctx,
+        role: discord.Option(discord.Role, "The role to set/unset"),
+        propagate: discord.Option(
+            bool,
+            "Whether to add/remove the role from all space owners",
+            default="False",
+        ),
+    ):
+        await ctx.defer()
+
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if await guild_db.check_exists(ctx):
+            if guild_db.space_owner_role_id == role.id:
+                await guild_db.set_owner_role(None)
+                if propagate:
+                    for member in ctx.guild.members:
+                        owner_db = Owner()
+                        await owner_db.async_init(ctx.guild.id, member.id)
+                        if owner_db.exists and role in member.roles:
+                            try:
+                                await member.remove_roles(role)
+                            except discord.Forbidden:
+                                await ctx.send_followup(
+                                    embed=discord.Embed(
+                                        description=f"Failed to modify {role.mention} for {member.mention}.",
+                                        color=discord.Colour.red(),
+                                    )
+                                )
+                                return
+                    await ctx.send_followup(
+                        embed=discord.Embed(
+                            description="Role for space owners removed and unset.",
+                            color=discord.Colour.green(),
+                        )
+                    )
+                else:
+                    await ctx.send_followup(
+                        embed=discord.Embed(
+                            description="Role for space owners unset.",
+                            color=discord.Colour.green(),
+                        )
+                    )
+            else:
+                if propagate:
+                    old_space_owner_role = ctx.guild.get_role(
+                        guild_db.space_owner_role_id
+                    )
+                await guild_db.set_owner_role(role.id)
+                if propagate:
+                    for member in ctx.guild.members:
+                        owner_db = Owner()
+                        await owner_db.async_init(ctx.guild.id, member.id)
+                        if owner_db.exists and role not in member.roles:
+                            try:
+                                await member.remove_roles(old_space_owner_role)
+                            except discord.Forbidden:
+                                await ctx.send_followup(
+                                    embed=discord.Embed(
+                                        description=f"Failed to modify {old_space_owner_role.mention} for {member.mention}.",
+                                        color=discord.Colour.red(),
+                                    )
+                                )
+                                return
+
+                            try:
+                                await member.add_roles(role)
+                            except discord.Forbidden:
+                                await ctx.send_followup(
+                                    embed=discord.Embed(
+                                        description=f"Failed to modify {role.mention} for {member.mention}.",
+                                        color=discord.Colour.red(),
+                                    )
+                                )
+                                return
+                    await ctx.send_followup(
+                        embed=discord.Embed(
+                            description=f"Role for space owners added and set to {role.mention}.",
+                            color=discord.Colour.green(),
+                        )
+                    )
+                else:
+                    await ctx.send_followup(
+                        embed=discord.Embed(
+                            description=f"Role for space owners set to {role.mention}.",
+                            color=discord.Colour.green(),
+                        )
+                    )
+
+    # Set maximum spaces per owner
+    @guild_group.command(
         name="set-max-spaces-per-owner",
-        description="Sets a maximum amount of spaces per owner",
+        description="Sets the maximum amount of spaces per owner for this server",
     )
     async def create(
         self,
@@ -312,95 +461,21 @@ class Cockpit(commands.Cog):
     ):
         await ctx.defer()
 
-        async with aiosqlite.connect("data/database.db") as db:
-            async with db.execute(
-                "SELECT * FROM guilds WHERE guild_id = ?", (ctx.guild.id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is None:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description=f"This server is not in the database.",
-                            color=discord.Colour.red(),
-                        )
-                    )
-                    return
-            await db.execute(
-                "UPDATE guilds SET max_spaces_per_owner = ? WHERE guild_id = ?",
-                (value, ctx.guild.id),
-            )
-            await db.commit()
-
-        await ctx.send_followup(
-            embed=discord.Embed(
-                description=f"Maximum amount of spaces per owner set to {value}.",
-                color=discord.Colour.green(),
-            ),
-        )
-
-    # add/remove role to whitelist
-    @guild.command(
-        name="modify-whitelist",
-        description="Adds or removes a role to and from the default whitelist",
-    )
-    async def create(
-        self,
-        ctx,
-        role: discord.Option(discord.Role, "The role to add/remove"),
-    ):
-        await ctx.defer()
-
-        async with aiosqlite.connect("data/database.db") as db:
-            async with db.execute(
-                "SELECT * FROM guilds WHERE guild_id = ?", (ctx.guild.id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is None:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description=f"This server is not in the database.",
-                            color=discord.Colour.red(),
-                        ),
-                    )
-                    return
-
-            async with db.execute(
-                "SELECT whitelisted_role_ids FROM guilds WHERE guild_id = ?",
-                (ctx.guild.id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is not None:
-                    whitelisted_role_ids = json.loads(row[0])
-                    if role.id in whitelisted_role_ids:
-                        whitelisted_role_ids.remove(role.id)
-                    else:
-                        whitelisted_role_ids.append(role.id)
-
-            await db.execute(
-                "UPDATE guilds SET whitelisted_role_ids = ? WHERE guild_id = ?",
-                (json.dumps(whitelisted_role_ids), ctx.guild.id),
-            )
-            await db.commit()
-
-        if role.id in whitelisted_role_ids:
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if await guild_db.check_exists(ctx):
+            await guild_db.set_max_spaces(value)
             await ctx.send_followup(
                 embed=discord.Embed(
-                    description=f"{role.mention} was added to the whitelist.",
-                    color=discord.Colour.green(),
-                ),
-            )
-        else:
-            await ctx.send_followup(
-                embed=discord.Embed(
-                    description=f"{role.mention} was removed from the whitelist.",
+                    description=f"Maximum amount of spaces per owner for this server set to `{value}`.",
                     color=discord.Colour.green(),
                 ),
             )
 
-    # pin/unpin channel
-    @guild.command(
+    # Pin/unpin channel
+    @guild_group.command(
         name="pin-channel",
-        description="Pins or unpins a channel to or from the spaces category",
+        description="Pins or unpins a channel from the spaces category",
     )
     async def create(
         self,
@@ -409,132 +484,136 @@ class Cockpit(commands.Cog):
     ):
         await ctx.defer()
 
-        async with aiosqlite.connect("data/database.db") as db:
-            async with db.execute(
-                "SELECT * FROM guilds WHERE guild_id = ?", (ctx.guild.id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is None:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description=f"This server is not in the database.",
-                            color=discord.Colour.red(),
-                        ),
-                    )
-                    return
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if await guild_db.check_exists(ctx):
+            if channel.id in guild_db.pinned_channel_ids:
+                await guild_db.remove_from_pinned(channel.id)
+                await ctx.send_followup(
+                    embed=discord.Embed(
+                        description=f"{channel.mention} pinned.",
+                        color=discord.Colour.green(),
+                    ),
+                )
+            else:
+                await guild_db.add_to_pinned(channel.id)
+                await ctx.send_followup(
+                    embed=discord.Embed(
+                        description=f"{channel.mention} unpinned.",
+                        color=discord.Colour.green(),
+                    ),
+                )
 
-            async with db.execute(
-                "SELECT pinned_channel_ids FROM guilds WHERE guild_id = ?",
-                (ctx.guild.id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is not None:
-                    pinned_channel_ids = json.loads(row[0])
-                    if channel.id in pinned_channel_ids:
-                        pinned_channel_ids.remove(channel.id)
-                    else:
-                        pinned_channel_ids.append(channel.id)
+    # Add/remove role from whitelist
+    @guild_group.command(
+        name="modify-whitelist",
+        description="Adds or removes a role from the default whitelist",
+    )
+    async def create(
+        self,
+        ctx,
+        role: discord.Option(discord.Role, "The role to add/remove"),
+    ):
+        await ctx.defer()
 
-            await db.execute(
-                "UPDATE guilds SET pinned_channel_ids = ? WHERE guild_id = ?",
-                (json.dumps(pinned_channel_ids), ctx.guild.id),
-            )
-            await db.commit()
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if await guild_db.check_exists(ctx):
+            if role.id in guild_db.whitelisted_role_ids:
+                await guild_db.remove_from_whitelist(role.id)
+                await ctx.send_followup(
+                    embed=discord.Embed(
+                        description=f"{role.mention} added to the whitelist.",
+                        color=discord.Colour.green(),
+                    ),
+                )
+            else:
+                await guild_db.add_to_whitelist(role.id)
+                await ctx.send_followup(
+                    embed=discord.Embed(
+                        description=f"{role.mention} removed from the whitelist.",
+                        color=discord.Colour.green(),
+                    ),
+                )
 
-        if channel.id in pinned_channel_ids:
-            await ctx.send_followup(
-                embed=discord.Embed(
-                    description=f"{channel.mention} is now pinned.",
-                    color=discord.Colour.green(),
-                ),
-            )
-        else:
-            await ctx.send_followup(
-                embed=discord.Embed(
-                    description=f"{channel.mention} is now unpinned.",
-                    color=discord.Colour.green(),
-                ),
-            )
-
-    # set default bump on message
-    @guild.command(
+    # Set default bump on message
+    @guild_group.command(
         name="set-bump-on-message",
         description="Configures whether sending a message in a space bumps it",
     )
     async def create(
         self,
         ctx,
-        value: discord.Option(bool, "The value to set for this configuration"),
+        value: discord.Option(bool, "The value to set"),
     ):
-        await Cockpit.configure_guild("bump-on-thread", ctx, value)
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if await guild_db.check_exists(ctx):
+            await guild_db.set_bump(value)
+            await ctx.send_followup(
+                embed=discord.Embed(
+                    description=f"Bump on message for this server set to `{value}`.",
+                    color=discord.Colour.green(),
+                )
+            )
 
-    # set bump on thread message
-    @guild.command(
+    # Set bump on thread message
+    @guild_group.command(
         name="set-bump-on-thread-message",
         description="Configures whether sending a message in a space's threads bumps it",
     )
     async def create(
         self,
         ctx,
-        value: discord.Option(bool, "The value to set for this configuration"),
+        value: discord.Option(bool, "The value to set"),
     ):
-        await Cockpit.configure_guild("bump-on-thread-message", ctx, value)
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if await guild_db.check_exists(ctx):
+            await guild_db.set_bump_thread(value)
+            await ctx.send_followup(
+                embed=discord.Embed(
+                    description=f"Bump on thread message for this server set to `{value}`.",
+                    color=discord.Colour.green(),
+                )
+            )
 
-    # sort spaces
-    @guild.command(
+    # Sort spaces
+    @guild_group.command(
         name="sort-spaces", description="Sorts spaces by activity in descending order"
     )
     async def sort(self, ctx):
         # this'll take a while
         await ctx.defer()
 
-        async with aiosqlite.connect("data/database.db") as db:
-            async with db.execute(
-                "SELECT space_category_id, pinned_channel_ids FROM guilds WHERE guild_id = ?",
-                (ctx.guild.id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is None:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description="The category for spaces is not set for this server.",
-                        ),
-                    )
-                    return
-                else:
-                    space_category_id = row[0]
-                    pinned_channel_ids = json.loads(row[1])
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if not await guild_db.check_exists(ctx) and not await guild_db.check_category(
+            ctx
+        ):
+            return
 
-        if ctx.guild.get_channel(space_category_id):
-            channels = ctx.guild.get_channel(space_category_id).text_channels
+        if ctx.guild.get_channel(guild_db.space_category_id):
+            channels = ctx.guild.get_channel(guild_db.space_category_id).text_channels
+            pinned_channels = []
+            spaces = []
 
-            async with aiosqlite.connect("data/database.db") as db:
-                async with db.execute(
-                    "SELECT space_id FROM spaces WHERE guild_id = ?", (ctx.guild.id,)
-                ) as cursor:
-                    rows = await cursor.fetchall()
-                    space_ids = [row[0] for row in rows]
+            for channel in channels:
+                if channel.id in guild_db.pinned_channel_ids:
+                    pinned_channels.append(channel.id)
+                    continue
 
-            spaces = [
-                c
-                for c in channels
-                if c.id in space_ids and c.id not in pinned_channel_ids
-            ]
+                space_db = Space()
+                await space_db.async_init(channel.id, channel.guild.id)
+                if space_db.exists:
+                    spaces.append(channel)
+
             if not spaces:
                 await ctx.send_followup(
                     embed=discord.Embed(description="There are no spaces to sort."),
                 )
                 return
-        else:
-            await ctx.send_followup(
-                embed=discord.Embed(
-                    description="The category for spaces configured for this server was not found.",
-                    color=discord.Colour.red(),
-                ),
-            )
-            return
 
-        pinned_channels = [c.id for c in channels if c.id in pinned_channel_ids]
         first_pos = channels[0].position
         channel_timestamps = {}
         empty_channel_timestamps = {}
@@ -575,8 +654,8 @@ class Cockpit(commands.Cog):
             ),
         )
 
-    # clean space database
-    @guild.command(
+    # Clean space database
+    @guild_group.command(
         name="clean-space-db",
         description="Cleans unresolved spaces and/or owners in this server from the database",
     )
@@ -641,8 +720,8 @@ class Cockpit(commands.Cog):
                         embed=discord.Embed(description="There are no spaces to clean.")
                     )
 
-    # create space
-    @space.command(name="create", description="Creates a space given an owner")
+    # Create space for self
+    @space_group.command(name="create", description="Creates a space given an owner")
     async def create(
         self,
         ctx,
@@ -652,88 +731,48 @@ class Cockpit(commands.Cog):
     ):
         await ctx.defer()
 
-        async with aiosqlite.connect("data/database.db") as db:
-            async with db.execute(
-                "SELECT space_category_id, max_spaces_per_owner, whitelisted_role_ids FROM guilds WHERE guild_id = ?",
-                (ctx.guild.id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is None:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description="The category for spaces is not set for this server.",
-                        )
-                    )
-                    return
-                else:
-                    space_category_id = row[0]
-                    max_spaces_per_owner = row[1]
-                    whitelisted_role_ids = json.loads(row[2])
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if not await guild_db.check_exists(ctx) and not await guild_db.check_category(
+            ctx
+        ):
+            return
 
-            async with db.execute(
-                "SELECT * FROM spaces WHERE guild_id = ? AND owner_id = ?",
-                (ctx.guild.id, ctx.author.id),
-            ) as cursor:
-                rows = await cursor.fetchall()
-                if len(rows) >= max_spaces_per_owner:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description="This owner has reached the maximum amount of spaces for this server.",
-                        )
-                    )
-                    return
+        owner_db = Owner()
+        await owner_db.async_init(ctx.guild.id, ctx.author.id)
+        if not await owner_db.check_max_spaces(ctx, guild_db.max_spaces_per_owner):
+            return
 
-        category = ctx.guild.get_channel(space_category_id)
         name = name or f"{ctx.author.display_name}-space"
-        overwrites = {
-            ctx.author: discord.PermissionOverwrite(
-                view_channel=True,
-                manage_channels=True,
-                manage_permissions=True,
-                manage_webhooks=True,
-                read_messages=True,
-                send_messages=True,
-            )
-        }
-        override_roles = [
-            ctx.guild.get_role(id)
-            for id in whitelisted_role_ids
-            if ctx.guild.get_role(id) and ctx.author.get_role(id)
-        ]
-        if override_roles:
-            overwrites[ctx.guild.default_role] = discord.PermissionOverwrite(
-                view_channel=False, send_messages=False
-            )
-            for role in override_roles:
-                overwrites[role] = discord.PermissionOverwrite(view_channel=True)
-        else:
-            overwrites[ctx.guild.default_role] = discord.PermissionOverwrite(
-                send_messages=False
-            )
+        category = ctx.guild.get_channel(guild_db.space_category_id)
+        space = await category.create_text_channel(
+            name,
+            overwrites=Cockpit.overwrites(
+                ctx.author, ctx.guild, guild_db.whitelisted_role_ids
+            ),
+        )
 
-        space = await category.create_text_channel(name, overwrites=overwrites)
-
-        async with aiosqlite.connect("data/database.db") as db:
-            async with db.execute(
-                "SELECT bump_on_message, bump_on_thread_message FROM guilds WHERE guild_id = ?",
-                (ctx.guild.id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is not None:
-                    bump_on_message = row[0]
-                    bump_on_thread_message = row[1]
-
-            await db.execute(
-                "INSERT INTO spaces VALUES (?, ?, ?, ?, ?)",
-                (
-                    space.id,
-                    space.guild.id,
-                    ctx.author.id,
-                    bump_on_message,
-                    bump_on_thread_message,
-                ),
+        await Space.add(
+            (
+                space.id,
+                space.guild.id,
+                ctx.author.id,
+                guild_db.bump_on_message,
+                guild_db.bump_on_thread_message,
             )
-            await db.commit()
+        )
+
+        space_owner_role = ctx.guild.get_role(guild_db.space_owner_role_id)
+        try:
+            await ctx.author.add_roles(space_owner_role)
+        except discord.Forbidden:
+            await ctx.send_followup(
+                embed=discord.Embed(
+                    description=f"Failed to modify <@&{guild_db.space_owner_role_id}> for {ctx.author.mention}.",
+                    color=discord.Colour.red(),
+                )
+            )
+            return
 
         await ctx.send_followup(
             embed=discord.Embed(
@@ -742,8 +781,8 @@ class Cockpit(commands.Cog):
             )
         )
 
-    # restore space permissions
-    @space.command(
+    # Restore space permissions
+    @space_group.command(
         name="restore", description="Restores default permissions for a space"
     )
     async def create(
@@ -753,69 +792,23 @@ class Cockpit(commands.Cog):
             discord.TextChannel, "The space to restore permissions for"
         ),
     ):
-        await ctx.defer()
+        guild_db = Guild()
+        await guild_db.async_init(ctx.guild.id)
+        if not await guild_db.check_exists(ctx) and not await guild_db.check_category(
+            ctx
+        ):
+            return
 
-        async with aiosqlite.connect("data/database.db") as db:
-            async with db.execute(
-                "SELECT whitelisted_role_ids FROM guilds WHERE guild_id = ?",
-                (ctx.guild.id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is None:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description="The category for spaces is not set for this server.",
-                        ),
-                    )
-                    return
-                else:
-                    whitelisted_role_ids = json.loads(row[0])
+        space_db = Space()
+        await space_db.async_init(space.id, space.guild.id)
+        if not await space_db.check_exists(ctx, True):
+            return
 
-            async with db.execute(
-                "SELECT owner_id FROM spaces WHERE guild_id = ? AND space_id = ?",
-                (ctx.guild.id, space.id),
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is None:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description=f"{space.mention} is not a space."
-                        ),
-                    )
-                    return
-                else:
-                    owner_id = row[0]
-
-            if ctx.author.id == owner_id:
-                overwrites = {
-                    ctx.author: discord.PermissionOverwrite(
-                        view_channel=True,
-                        manage_channels=True,
-                        manage_permissions=True,
-                        manage_webhooks=True,
-                        read_messages=True,
-                        send_messages=True,
-                    )
-                }
-                override_roles = [
-                    ctx.guild.get_role(id)
-                    for id in whitelisted_role_ids
-                    if ctx.guild.get_role(id) and ctx.author.get_role(id)
-                ]
-                if override_roles:
-                    overwrites[ctx.guild.default_role] = discord.PermissionOverwrite(
-                        view_channel=False, send_messages=False
-                    )
-                    for role in override_roles:
-                        overwrites[role] = discord.PermissionOverwrite(
-                            view_channel=True
-                        )
-                else:
-                    overwrites[ctx.guild.default_role] = discord.PermissionOverwrite(
-                        send_messages=False
-                    )
-
-                await space.edit(overwrites=overwrites)
+        await space.edit(
+            overwrites=Cockpit.overwrites(
+                ctx.author, ctx.guild, guild_db.whitelisted_role_ids
+            )
+        )
 
         await ctx.send_followup(
             embed=discord.Embed(
@@ -824,67 +817,8 @@ class Cockpit(commands.Cog):
             ),
         )
 
-    # configure space
-    async def configure_space(option, ctx, space, value):
-        await ctx.defer()
-
-        async with aiosqlite.connect("data/database.db") as db:
-            async with db.execute(
-                "SELECT owner_id FROM spaces WHERE guild_id = ? AND space_id = ?",
-                (ctx.guild.id, space.id),
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row is None:
-                    await ctx.send_followup(
-                        embed=discord.Embed(
-                            description=f"{space.mention} is not a space."
-                        )
-                    )
-                    return
-                else:
-                    owner_id = row[0]
-
-            if ctx.author.id == owner_id:
-                await db.execute(
-                    f"UPDATE spaces SET {option} = ? WHERE space_id = ?",
-                    (value, space.id),
-                )
-                await db.commit()
-
-                await ctx.send_followup(
-                    embed=discord.Embed(
-                        description=f"`{option}` for {space.mention} is now set to `{value}`.",
-                        color=discord.Colour.green(),
-                    )
-                )
-            else:
-                await ctx.send_followup(
-                    embed=discord.Embed(
-                        description=f"You do not own {space.mention}.",
-                        color=discord.Colour.green(),
-                    )
-                )
-
-    # configure guild
-    async def configure_guild(option, ctx, value):
-        await ctx.defer()
-
-        async with aiosqlite.connect("data/database.db") as db:
-            await db.execute(
-                f"UPDATE guilds SET {option} = ? WHERE guild_id = ?",
-                (value, ctx.guild.id),
-            )
-            await db.commit()
-
-            await ctx.send_followup(
-                embed=discord.Embed(
-                    description=f"`{option}` for **{ctx.guild.name}** is now set to `{value}`.",
-                    color=discord.Colour.green(),
-                )
-            )
-
-    # configure bump on message
-    @config.command(
+    # Set bump on message
+    @config_group.command(
         name="bump-on-message",
         description="Configures whether sending a message in a space bumps it",
     )
@@ -892,12 +826,21 @@ class Cockpit(commands.Cog):
         self,
         ctx,
         space: discord.Option(discord.TextChannel, "The space to configure"),
-        value: discord.Option(bool, "The value to set for this configuration"),
+        value: discord.Option(bool, "The value to set"),
     ):
-        await Cockpit.configure_space("bump_on_message", ctx, space, value)
+        space_db = Space()
+        await space_db.async_init(space.id, space.guild.id)
+        if not await space_db.check_exists(ctx) and not await space_db.check_owner(ctx):
+            await space_db.set_bump(value)
+            await ctx.send_followup(
+                embed=discord.Embed(
+                    description=f"Bump on message for {space.mention} set to `{value}`.",
+                    color=discord.Colour.green(),
+                )
+            )
 
-    # configure bump on thread message
-    @config.command(
+    # Set bump on thread message
+    @config_group.command(
         name="bump-on-thread-message",
         description="Configures whether sending a message in a space's threads bumps it",
     )
@@ -905,9 +848,18 @@ class Cockpit(commands.Cog):
         self,
         ctx,
         space: discord.Option(discord.TextChannel, "The space to configure"),
-        value: discord.Option(bool, "The value to set for this configuration"),
+        value: discord.Option(bool, "The value to set"),
     ):
-        await Cockpit.configure_space("bump_on_thread_message", ctx, space, value)
+        space_db = Space()
+        await space_db.async_init(space.id, space.guild.id)
+        if not await space_db.check_exists(ctx) and not await space_db.check_owner(ctx):
+            await space_db.set_bump_thread(value)
+            await ctx.send_followup(
+                embed=discord.Embed(
+                    description=f"Bump on thread message for {space.mention} set to `{value}`.",
+                    color=discord.Colour.green(),
+                )
+            )
 
 
 def setup(bot):
