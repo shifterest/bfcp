@@ -48,13 +48,17 @@ class Cockpit(commands.Cog):
     async def on_message(self, message):
         channel = message.channel
 
-        if channel.type == discord.ChannelType.public_thread:
-            channel = channel.parent
-        elif channel.type != discord.ChannelType.text:
+        if not channel.type in (
+            discord.ChannelType.text,
+            discord.ChannelType.public_thread,
+        ):
             return
 
         space_db = Space()
-        await space_db.async_init(channel.id, channel.guild.id)
+        if channel.type == discord.ChannelType.public_thread:
+            await space_db.async_init(channel.id, channel.parent.guild.id)
+        else:
+            await space_db.async_init(channel.id, channel.guild.id)
         if (
             not space_db.exists
             or (
@@ -68,6 +72,9 @@ class Cockpit(commands.Cog):
         ):
             return
 
+        if channel.type == discord.ChannelType.public_thread:
+            channel = channel.parent
+
         guild_db = Guild()
         await guild_db.async_init(channel.guild.id)
         if not guild_db.exists and channel.id in guild_db.pinned_channel_ids:
@@ -80,7 +87,6 @@ class Cockpit(commands.Cog):
                 pinned_channel = message.guild.get_channel(id)
                 if pinned_channel and pinned_channel.category_id == channel.category_id:
                     position = max(position, pinned_channel.position)
-
             if channel.position != position + 1:
                 await channel.edit(position=position + 1)
 
