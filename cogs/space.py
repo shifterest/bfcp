@@ -94,6 +94,11 @@ class Cockpit(commands.Cog):
         guild_db = Guild()
         await guild_db.async_init(ctx.guild.id)
         if await guild_db.check_exists(ctx):
+            greet_channel = (
+                f"<#{guild_db.greet_channel_id}>"
+                if guild_db.greet_channel_id
+                else "None"
+            )
             greet_attachments = (
                 ", ".join(guild_db.greet_attachments)
                 if guild_db.greet_attachments
@@ -124,15 +129,15 @@ class Cockpit(commands.Cog):
             await ctx.send_followup(
                 embed=discord.Embed(
                     title=f"About {ctx.guild.name}",
-                    description=f"""Greet channel: **{guild_db.greet_channel_id}**
+                    description=f"""Greet channel: **{greet_channel}**
                     Greet attachments: **{greet_attachments}**
                     Space category: **{space_category}**
                     Space owner role: **{space_owner_role}**
                     Maximum spaces per owner: **{guild_db.max_spaces_per_owner}**
                     Pinned channels: **{pinned_channels}**
                     Whitelisted roles: **{whitelisted_roles}**
-                    Bump on message: **{bump_on_message}**
-                    Bump on thread message: **{bump_on_thread_message}**""",
+                    Bump on message by default: **{bump_on_message}**
+                    Bump on thread message by default: **{bump_on_thread_message}**""",
                 )
             )
 
