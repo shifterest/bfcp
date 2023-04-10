@@ -119,6 +119,8 @@ class Cockpit(commands.Cog):
                 if guild_db.whitelisted_role_ids
                 else "None"
             )
+            bump_on_message = "Yes" if guild_db.bump_on_message else "No"
+            bump_on_thread_message = "Yes" if guild_db.bump_on_thread_message else "No"
             await ctx.send_followup(
                 embed=discord.Embed(
                     title=f"About {ctx.guild.name}",
@@ -129,9 +131,8 @@ class Cockpit(commands.Cog):
                     Maximum spaces per owner: **{guild_db.max_spaces_per_owner}**
                     Pinned channels: **{pinned_channels}**
                     Whitelisted roles: **{whitelisted_roles}**
-                    Bump on message: **{guild_db.bump_on_message}**
-                    Bump on thread message: **{guild_db.bump_on_thread_message}**""",
-                    color=discord.Colour.green(),
+                    Bump on message: **{bump_on_message}**
+                    Bump on thread message: **{bump_on_thread_message}**""",
                 )
             )
 
@@ -147,13 +148,14 @@ class Cockpit(commands.Cog):
         space_db = Space()
         await space_db.async_init(space.id, ctx.guild.id)
         if await space_db.check_exists(ctx, True):
+            bump_on_message = "Yes" if space_db.bump_on_message else "No"
+            bump_on_thread_message = "Yes" if space_db.bump_on_thread_message else "No"
             await ctx.send_followup(
                 embed=discord.Embed(
                     title=f"About {space.mention}",
                     description=f"""Owner: **<@{space_db.owner_id}>**
-                    Bump on message: **{space_db.bump_on_message}**
-                    Bump on thread message: **{space_db.bump_on_thread_message}**""",
-                    color=discord.Colour.green(),
+                    Bump on message: **{bump_on_message}**
+                    Bump on thread message: **{bump_on_thread_message}**""",
                 )
             )
 
@@ -830,7 +832,9 @@ class Cockpit(commands.Cog):
     ):
         space_db = Space()
         await space_db.async_init(space.id, space.guild.id)
-        if not await space_db.check_exists(ctx) and not await space_db.check_owner(ctx):
+        if not await space_db.check_exists(
+            ctx, True
+        ) and not await space_db.check_owner(ctx):
             await space_db.set_bump(value)
             await ctx.send_followup(
                 embed=discord.Embed(
@@ -852,7 +856,9 @@ class Cockpit(commands.Cog):
     ):
         space_db = Space()
         await space_db.async_init(space.id, space.guild.id)
-        if not await space_db.check_exists(ctx) and not await space_db.check_owner(ctx):
+        if not await space_db.check_exists(
+            ctx, True
+        ) and not await space_db.check_owner(ctx):
             await space_db.set_bump_thread(value)
             await ctx.send_followup(
                 embed=discord.Embed(
