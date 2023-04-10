@@ -211,16 +211,17 @@ class Cockpit(commands.Cog):
         )
 
         space_owner_role = ctx.guild.get_role(guild_db.space_owner_role_id)
-        try:
-            await owner.add_roles(space_owner_role)
-        except discord.Forbidden:
-            await ctx.send_followup(
-                embed=discord.Embed(
-                    description=f"Failed to modify {space_owner_role.mention}> for {owner.mention}.",
-                    color=discord.Colour.red(),
+        if space_owner_role:
+            try:
+                await owner.add_roles(space_owner_role)
+            except discord.Forbidden:
+                await ctx.send_followup(
+                    embed=discord.Embed(
+                        description=f"Failed to modify {space_owner_role.mention}> for {owner.mention}.",
+                        color=discord.Colour.red(),
+                    )
                 )
-            )
-            return
+                return
 
         await ctx.send_followup(
             embed=discord.Embed(
@@ -276,16 +277,17 @@ class Cockpit(commands.Cog):
         )
 
         space_owner_role = ctx.guild.get_role(guild_db.space_owner_role_id)
-        try:
-            await owner.add_roles(space_owner_role)
-        except discord.Forbidden:
-            await ctx.send_followup(
-                embed=discord.Embed(
-                    description=f"Failed to modify {space_owner_role.mention} for {owner.mention}.",
-                    color=discord.Colour.red(),
+        if space_owner_role:
+            try:
+                await owner.add_roles(space_owner_role)
+            except discord.Forbidden:
+                await ctx.send_followup(
+                    embed=discord.Embed(
+                        description=f"Failed to modify {space_owner_role.mention} for {owner.mention}.",
+                        color=discord.Colour.red(),
+                    )
                 )
-            )
-            return
+                return
 
         await ctx.send_followup(
             embed=discord.Embed(
@@ -416,7 +418,7 @@ class Cockpit(commands.Cog):
                         guild_db.space_owner_role_id
                     )
                 await guild_db.set_owner_role(role.id)
-                if propagate:
+                if propagate and old_space_owner_role:
                     for member in ctx.guild.members:
                         owner_db = Owner()
                         await owner_db.async_init(ctx.guild.id, member.id)
@@ -770,16 +772,17 @@ class Cockpit(commands.Cog):
         )
 
         space_owner_role = ctx.guild.get_role(guild_db.space_owner_role_id)
-        try:
-            await ctx.author.add_roles(space_owner_role)
-        except discord.Forbidden:
-            await ctx.send_followup(
-                embed=discord.Embed(
-                    description=f"Failed to modify <@&{guild_db.space_owner_role_id}> for {ctx.author.mention}.",
-                    color=discord.Colour.red(),
+        if space_owner_role:
+            try:
+                await ctx.author.add_roles(space_owner_role)
+            except discord.Forbidden:
+                await ctx.send_followup(
+                    embed=discord.Embed(
+                        description=f"Failed to modify <@&{guild_db.space_owner_role_id}> for {ctx.author.mention}.",
+                        color=discord.Colour.red(),
+                    )
                 )
-            )
-            return
+                return
 
         await ctx.send_followup(
             embed=discord.Embed(
