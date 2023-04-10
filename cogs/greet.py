@@ -19,9 +19,7 @@ class Greet(commands.Cog):
         guild_db = Guild()
         await guild_db.async_init(after.guild.id)
         if not (
-            await guild_db.exists
-            and await guild_db.greet_channel_id
-            and await guild_db.greet_attachments
+            guild_db.exists and guild_db.greet_channel_id and guild_db.greet_attachments
         ):
             return
 

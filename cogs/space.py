@@ -424,22 +424,22 @@ class Cockpit(commands.Cog):
                         guild_db.space_owner_role_id
                     )
                 await guild_db.set_owner_role(role.id)
-                if propagate and old_space_owner_role:
+                if propagate:
                     for member in ctx.guild.members:
                         owner_db = Owner()
                         await owner_db.async_init(ctx.guild.id, member.id)
                         if owner_db.exists and role not in member.roles:
-                            try:
-                                await member.remove_roles(old_space_owner_role)
-                            except discord.Forbidden:
-                                await ctx.send_followup(
-                                    embed=discord.Embed(
-                                        description=f"Failed to modify {old_space_owner_role.mention} for {member.mention}.",
-                                        color=discord.Colour.red(),
+                            if old_space_owner_role:
+                                try:
+                                    await member.remove_roles(old_space_owner_role)
+                                except discord.Forbidden:
+                                    await ctx.send_followup(
+                                        embed=discord.Embed(
+                                            description=f"Failed to modify {old_space_owner_role.mention} for {member.mention}.",
+                                            color=discord.Colour.red(),
+                                        )
                                     )
-                                )
-                                return
-
+                                    return
                             try:
                                 await member.add_roles(role)
                             except discord.Forbidden:
@@ -506,7 +506,7 @@ class Cockpit(commands.Cog):
                 await guild_db.remove_from_pinned(channel.id)
                 await ctx.send_followup(
                     embed=discord.Embed(
-                        description=f"{channel.mention} pinned.",
+                        description=f"{channel.mention} unpinned.",
                         color=discord.Colour.green(),
                     ),
                 )
@@ -514,7 +514,7 @@ class Cockpit(commands.Cog):
                 await guild_db.add_to_pinned(channel.id)
                 await ctx.send_followup(
                     embed=discord.Embed(
-                        description=f"{channel.mention} unpinned.",
+                        description=f"{channel.mention} pinned.",
                         color=discord.Colour.green(),
                     ),
                 )
