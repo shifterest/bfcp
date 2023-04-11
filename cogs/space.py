@@ -182,7 +182,7 @@ class Cockpit(commands.Cog):
             str, "The name of the space", required=False, min_length=1
         ),
     ):
-        await ctx.defer()
+        await ctx.defer(ephemeral=True)
 
         guild_db = Guild()
         await guild_db.async_init(ctx.guild.id)
@@ -197,7 +197,7 @@ class Cockpit(commands.Cog):
             return
 
         owner = owner or ctx.author
-        name = name or f"{ctx.author.display_name}-space"
+        name = name or f"{owner.display_name}-space"
         category = ctx.guild.get_channel(guild_db.space_category_id)
         space = await category.create_text_channel(
             name,
@@ -233,7 +233,8 @@ class Cockpit(commands.Cog):
             embed=discord.Embed(
                 description=f"{space.mention} was successfully created for {owner.mention}.",
                 color=discord.Colour.green(),
-            )
+            ),
+            ephemeral=True
         )
         await ctx.channel.send(
             owner.mention,
