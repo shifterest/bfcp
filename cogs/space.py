@@ -561,6 +561,8 @@ class Cockpit(commands.Cog):
         ctx,
         value: discord.Option(bool, "The value to set"),
     ):
+        await ctx.defer()
+
         guild_db = Guild()
         await guild_db.async_init(ctx.guild.id)
         if await guild_db.check_exists(ctx):
@@ -582,6 +584,8 @@ class Cockpit(commands.Cog):
         ctx,
         value: discord.Option(bool, "The value to set"),
     ):
+        await ctx.defer()
+
         guild_db = Guild()
         await guild_db.async_init(ctx.guild.id)
         if await guild_db.check_exists(ctx):
@@ -808,6 +812,8 @@ class Cockpit(commands.Cog):
             discord.TextChannel, "The space to restore permissions for"
         ),
     ):
+        await ctx.defer()
+
         guild_db = Guild()
         await guild_db.async_init(ctx.guild.id)
         if not await guild_db.check_exists(ctx) and not await guild_db.check_category(
@@ -844,6 +850,8 @@ class Cockpit(commands.Cog):
         space: discord.Option(discord.TextChannel, "The space to configure"),
         value: discord.Option(bool, "The value to set"),
     ):
+        await ctx.defer()
+
         space_db = Space()
         await space_db.async_init(space.id, space.guild.id)
         if not await space_db.check_exists(
@@ -868,6 +876,8 @@ class Cockpit(commands.Cog):
         space: discord.Option(discord.TextChannel, "The space to configure"),
         value: discord.Option(bool, "The value to set"),
     ):
+        await ctx.defer()
+        
         space_db = Space()
         await space_db.async_init(space.id, space.guild.id)
         if not await space_db.check_exists(
