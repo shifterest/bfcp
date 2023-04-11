@@ -854,9 +854,7 @@ class Cockpit(commands.Cog):
 
         space_db = Space()
         await space_db.async_init(space.id, space.guild.id)
-        if not await space_db.check_exists(
-            ctx, True
-        ) and not await space_db.check_owner(ctx):
+        if await space_db.check_exists(ctx, True) and await space_db.check_owner(ctx):
             await space_db.set_bump(value)
             await ctx.send_followup(
                 embed=discord.Embed(
@@ -877,12 +875,10 @@ class Cockpit(commands.Cog):
         value: discord.Option(bool, "The value to set"),
     ):
         await ctx.defer()
-        
+
         space_db = Space()
         await space_db.async_init(space.id, space.guild.id)
-        if not await space_db.check_exists(
-            ctx, True
-        ) and not await space_db.check_owner(ctx):
+        if await space_db.check_exists(ctx, True) and await space_db.check_owner(ctx):
             await space_db.set_bump_thread(value)
             await ctx.send_followup(
                 embed=discord.Embed(
